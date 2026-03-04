@@ -1,0 +1,31 @@
+{
+  "name": "yugabytedb-skills",
+  "owner": {
+    "name": "Yugabyte",
+    "email": "info@yugabyte.com"
+  },
+  "metadata": {
+    "description": "Agent skills for generating correct, optimized YugabyteDB code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "yugabytedb-ysql",
+      "description": "Use when writing or reviewing SQL, schema definitions, or application code that targets YugabyteDB's PostgreSQL-compatible YSQL API (port 5433). Triggers on CREATE TABLE, indexes, connections, transactions, sharding, migrations from PostgreSQL, or any mention of YugabyteDB with SQL.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yugabytedb-ysql"
+      ]
+    },
+    {
+      "name": "yugabytedb-ycql",
+      "description": "Use when writing or reviewing CQL code, schema definitions, or application code that targets YugabyteDB's Cassandra-compatible YCQL API (port 9042). Triggers on YCQL tables, partition keys, TTL, batching, or any mention of YugabyteDB with Cassandra/CQL.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yugabytedb-ycql"
+      ]
+    }
+  ]
+}
