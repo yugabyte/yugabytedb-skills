@@ -49,7 +49,7 @@ The `name` and `description` fields in frontmatter must stay in sync with the co
 ## Installation Commands (for reference)
 
 ```bash
-npx skills add yugabyte/skills              # All skills
-npx skills add yugabyte/skills -s yugabytedb-ysql   # YSQL only
-npx skills add yugabyte/skills -s yugabytedb-ycql   # YCQL only
+npx skills add yugabyte/yugabytedb-skills              # All skills
+npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ysql   # YSQL only
+npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ycql   # YCQL only
 ```

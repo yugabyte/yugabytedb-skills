@@ -1,36 +1,38 @@
 # YugabyteDB Agent Skills
 
-Reusable AI agent skills for generating correct, optimized YugabyteDB code. Compatible with Claude Code, Cursor, GitHub Copilot, Windsurf, Gemini, and any tool supporting the [skills.sh](https://skills.sh) ecosystem.
+Empower your AI agents and automation systems with native YugabyteDB expertise. This curated collection of structured skills enables developer tools to perform intelligent, production-grade database operations with full contextual awareness.
 
-## Install
+## Getting Started
 
-### All skills
-
-```bash
-npx skills add yugabyte/skills
-```
-
-### YSQL only (PostgreSQL-compatible API)
+Install all available skills at once:
 
 ```bash
-npx skills add yugabyte/skills -s yugabytedb-ysql
+npx skills add yugabyte/yugabytedb-skills
 ```
 
-### YCQL only (Cassandra-compatible API)
+Or pick only what you need:
 
 ```bash
-npx skills add yugabyte/skills -s yugabytedb-ycql
+# PostgreSQL-compatible YSQL API
+npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ysql
+
+# Cassandra-compatible YCQL API
+npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ycql
 ```
 
-## Skills
+## Available Skills
 
-| Skill | When to Use |
-|-------|-------------|
-| `yugabytedb-ysql` | Writing SQL or application code targeting YugabyteDB's PostgreSQL-compatible API — anti-patterns, schema design (sharding, indexes, geo-distribution), smart drivers, transaction retry, batching, PostgreSQL migration strategy, production checklist |
-| `yugabytedb-ycql` | Writing YCQL (Cassandra-compatible API) code — partition keys, clustering columns, global secondary indexes, prepared statements, batching, TTL, memory configuration |
+| Skill              | Description                                                                                                                                                                                                                                                      |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `yugabytedb-ysql`  | SQL and application development against YugabyteDB's PostgreSQL-compatible API — covers anti-patterns, schema design (sharding, indexes, geo-distribution), smart drivers, transaction retries, batching, PostgreSQL migration strategies, and production readiness checklists |
+| `yugabytedb-ycql`  | YCQL (Cassandra-compatible API) development — covers partition keys, clustering columns, global secondary indexes, prepared statements, batching, TTL management, and memory configuration                                                                        |
 
-## References
+## Learn More
 
-- [Lift-and-Shift of High Write-Throughput Apps](https://www.yugabyte.com/blog/lift-and-shift-high-write-throughput-apps/)
 - [YugabyteDB Documentation](https://docs.yugabyte.com/)
+- [YugabyteDB Blog](https://www.yugabyte.com/blog)
 - [skills.sh](https://skills.sh/) — The Open Agent Skills Ecosystem
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).

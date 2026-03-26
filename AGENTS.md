@@ -13,11 +13,11 @@ This repository contains agent skills for generating correct, optimized Yugabyte
 
 ```bash
 # All skills
-npx skills add yugabyte/skills
+npx skills add yugabyte/yugabytedb-skills
 
 # YSQL only
-npx skills add yugabyte/skills -s yugabytedb-ysql
+npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ysql
 
 # YCQL only
-npx skills add yugabyte/skills -s yugabytedb-ycql
+npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ycql
 ```
