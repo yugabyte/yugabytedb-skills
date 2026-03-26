@@ -9,7 +9,7 @@ description: Use when writing or reviewing SQL, schema definitions, or applicati
 - `references/smart-drivers.md` — connection examples for Python, Java, Go, Node.js
 - `references/retry-patterns.md` — transaction retry code in Python and Java
 
-YugabyteDB is PostgreSQL-compatible (YSQL on port 5433) but uses **distributed storage**: DocDB (LSM/RocksDB), Raft consensus, hash/range sharding across tablets, Hybrid Logical Clocks. **Every SQL operation may involve network RPCs between nodes.** Patterns free in single-node PostgreSQL (heap fetches, sequence increments) become expensive or impossible.
+YugabyteDB is a distributed, PostgreSQL-compatible database (YSQL on port 5433) that is **ACID-compliant**, **highly available**, **horizontally scalable**, and supports **hash/range sharding** of tables and indexes. **Every SQL operation may involve network RPCs between nodes.** Patterns free in single-node PostgreSQL (heap fetches, sequence increments) become expensive or impossible.
 
 Connection: `postgresql://yugabyte:yugabyte@localhost:5433/yugabyte`
 
@@ -17,18 +17,13 @@ Connection: `postgresql://yugabyte:yugabyte@localhost:5433/yugabyte`
 
 | Feature | Why It Fails on YugabyteDB | Use Instead |
 |---------|---------------------------|-------------|
-| `SERIAL` / `BIGSERIAL` PK with range sharding | Monotonic values → all inserts go to the same tablet → write hotspot | See "Primary Key Strategy" below |
-| `LISTEN` / `NOTIFY` / `pg_notify()` | No shared memory across tservers — events silently never delivered | External queue (Kafka, Redis) or CDC |
+| `SERIAL` / `BIGSERIAL` PK or `PRIMARY KEY (timestamp, ...)` with range sharding | Monotonic values → all inserts go to the same tablet → write hotspot | See "Primary Key Strategy" below |
 | `CREATE UNLOGGED TABLE` | Silently ignored — all tables are Raft-replicated, `UNLOGGED` keyword accepted but has no effect | Regular table + `TRUNCATE` after processing |
-| `INHERITS (parent)` | Not supported | Separate tables with FKs, or `PARTITION BY` |
 | `EXCLUDE USING gist(...)` | GiST indexes not supported | App-level validation or triggers |
 | `xmin`, `xmax`, `ctid` | Unreliable — DocDB uses HLC-based MVCC, not heap tuple headers | Explicit `version INT` column for optimistic locking |
-| `USING gist/brin/spgist` | Only B-tree, Hash, GIN supported | GIN for trigram/FTS: `USING gin (col gin_trgm_ops)` |
+| `USING gist/brin/spgist` | Only B-tree, Hash, GIN, and vector (pgvector) indexes supported | GIN for trigram/FTS: `USING gin (col gin_trgm_ops)` |
 | `MERGE INTO` | Not supported | `INSERT ... ON CONFLICT ... DO UPDATE SET` |
-| DDL inside `BEGIN`/`COMMIT` | DDL is not transactional by default — executes immediately, ROLLBACK won't undo. Transactional DDL available as Tech Preview (`ysql_yb_ddl_transaction_block_enabled`) | Run DDL outside transactions, single connection |
 | `PREPARE TRANSACTION` | Not implemented | Saga or outbox pattern |
-| `PRIMARY KEY (timestamp, id)` | Timestamp-leading key → write hotspot | Put a well-distributed column first |
-
 ## Schema Design
 
 ### Primary Key Strategy
@@ -73,38 +68,35 @@ CREATE TABLE tenant_orders (
 The primary schema difference from PostgreSQL is the choice between hash and range sharding on primary keys and indexes (`HASH` / `ASC` / `DESC`).
 
 **Range sharding** (`ASC` / `DESC`):
-- Supports all PostgreSQL queries including range scans (`BETWEEN`, `>`, `<`)
-- Good default for general-purpose / OLTP PostgreSQL migrations
-
-**Hash sharding** (`HASH`):
-- Perfect data distribution across nodes
-- Efficient point queries and multi-row lookups on the same hash
-- Limits range queries on the hashed column
-- Ideal when multiple rows are served from a single node via hash equality
-
-**For general-purpose applications:** Use range sharding by default. Apply HASH sharding to sequential primary keys (identity keys, sequences).
-
-**For high-performance applications:** Use HASH sharding by default. Apply range sharding to columns requiring inequality lookups, large scans, or aggregations.
+- Perfect for ordered queries and range scans (`BETWEEN`, `>`, `<`)
+- Leads to hot shards when the key is monotonic since all inserts go to the same tablet
 
 ```sql
 -- Range sharding for ordered queries
-CREATE TABLE orders (
-    id UUID DEFAULT gen_random_uuid(),
-    customer_id UUID NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (id ASC)
+CREATE TABLE player_scores (
+    score      BIGINT,
+    player_id  UUID,
+    username   TEXT,
+    PRIMARY KEY (score ASC, player_id ASC)
 );
-
--- Hash sharding for sequential/monotonic keys
-CREATE TABLE events (
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
-    data JSONB,
-    PRIMARY KEY (id HASH)
-);
-
--- Explicit tablet splits
-CREATE TABLE large_events (...) SPLIT INTO 16 TABLETS;
 ```
+
+**Hash sharding** (`HASH`):
+- Perfect for even data distribution across nodes
+- Efficient point queries and multi-row lookups on the same hash
+- Limits range queries on the hashed column
+
+```sql
+-- Hash sharding for even data distribution across nodes
+CREATE TABLE user_events (
+    event_id UUID DEFAULT gen_random_uuid(),
+    user_id  BIGINT,
+    event_ts TIMESTAMPTZ,
+    payload  JSONB,
+    PRIMARY KEY (event_id HASH)
+);
+```
+
 
 ### Tablet Count Management
 
@@ -123,6 +115,11 @@ CREATE DATABASE myapp WITH colocation = true;
 -- Opt out large/high-throughput tables: WITH (colocation = false)
 ```
 Avoid colocating tables that receive disproportionately high load — they will hotspot the shared tablet.
+
+```sql
+-- Explicit tablet splits
+CREATE TABLE large_events (...) SPLIT INTO 16 TABLETS;
+```
 
 ### Index Design
 
