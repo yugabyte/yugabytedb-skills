@@ -12,12 +12,12 @@ YugabyteDB Agent Skills — a collection of reusable AI agent skills (delivered 
 
 ```
 skills/
-  yugabytedb-ysql/
+  ysql/
     SKILL.md                  # PostgreSQL-compatible YSQL API skill (port 5433)
     references/               # Detailed code examples (progressive disclosure)
       smart-drivers.md        # Connection examples for Python, Java, Go, Node.js
       retry-patterns.md       # Transaction retry code in Python and Java
-  yugabytedb-ycql/
+  ycql/
     SKILL.md                  # Cassandra-compatible YCQL API skill (port 9042)
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
@@ -50,6 +50,6 @@ The `name` and `description` fields in frontmatter must stay in sync with the co
 
 ```bash
 npx skills add yugabyte/yugabytedb-skills              # All skills
-npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ysql   # YSQL only
-npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ycql   # YCQL only
+npx skills add yugabyte/yugabytedb-skills -s ysql   # YSQL only
+npx skills add yugabyte/yugabytedb-skills -s ycql   # YCQL only
 ```

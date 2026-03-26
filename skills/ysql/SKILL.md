@@ -1,5 +1,5 @@
 ---
-name: yugabytedb-ysql
+name: ysql
 description: Use when writing or reviewing SQL, schema definitions, or application code that targets YugabyteDB's PostgreSQL-compatible YSQL API (port 5433). Triggers on CREATE TABLE, indexes, connections, transactions, sharding, migrations from PostgreSQL, or any mention of YugabyteDB with SQL.
 ---
 
@@ -186,7 +186,7 @@ CREATE INDEX ON events (timestamp DESC);
 CREATE INDEX ON events (
     (yb_hash_code(timestamp) % 3) ASC,
     timestamp DESC
-) SPLIT AT VALUES ((1), (2));
+) SPLIT AT VALUES ((0), (1), (2));
 ```
 The modulo value determines node-placement buckets (can be increased later with a new index). A hotspot is acceptable if that object's throughput stays within a single node's capability.
 
@@ -250,9 +250,7 @@ Topology keys format: `cloud.region.zone:priority` (1=primary, 2=fallback, `*`=w
 
 ### Concurrency Control: Wait-on-Conflict
 
-YugabyteDB defaults to **Wait-on-Conflict** (`--enable_wait_queues=true`) — transactions queue on contention instead of aborting, matching PostgreSQL semantics. Distributed deadlock detection is active automatically. Combine with `lock_timeout` to bound wait time.
-
-Legacy **Fail-on-Conflict** mode (`--enable_wait_queues=false`) aborts transactions on contention — produces frequent `40001` errors requiring aggressive retry logic.
+YugabyteDB defaults to **Wait-on-Conflict** — transactions queue on contention instead of aborting, matching PostgreSQL semantics. Distributed deadlock detection is active automatically. Combine with `lock_timeout` to bound wait time.
 
 ### Transaction Retry
 
@@ -270,7 +268,7 @@ conn = psycopg2.connect("...",
 Use protocol-level prepared statements (parameterized queries) rather than explicit `PREPARE`/`EXECUTE`. Protocol-level prepared statements are preferred because they maintain connection flexibility with server-side pooling (PgBouncer, YSQL Connection Manager).
 
 ### Batch Operations
-Use multi-row INSERT and INSERT ON CONFLICT for superior throughput over individual row operations:
+Use multi-row INSERT and INSERT ON CONFLICT for superior throughput over individual row operations, since it reduces the number of network round-trips:
 ```sql
 INSERT INTO orders (id, customer_id, total) VALUES
     (gen_random_uuid(), $1, $2),
@@ -303,8 +301,6 @@ EXPLAIN (ANALYZE, DIST, COSTS) SELECT * FROM orders WHERE customer_id = $1;
 ```
 Key metrics: `Storage Read Requests` (RPCs, lower=better), `Storage Rows Scanned`, `Index Only Scan` (ideal) vs `Seq Scan` (bad for large tables).
 
-### Batched Nested Loop Join
-Enabled by default (`yb_bnl_batch_size = 1024`, the suggested value). Batches outer-table keys into a single RPC to reduce cross-node round-trips during nested loop joins. Set to `1` to disable.
 
 ### Long-Running Read Snapshots
 For batch jobs that need consistent reads without contention:
@@ -333,12 +329,11 @@ SELECT * FROM large_table WHERE yb_hash_code(id) BETWEEN 0 AND 5000;
 SELECT * FROM large_table WHERE yb_hash_code(id) BETWEEN 5001 AND 10000;
 ```
 
-### Advisory Locks (v2025.1+)
+### Advisory Locks
 
-All PostgreSQL advisory lock functions work. Enabled by default (`ysql_yb_enable_advisory_locks = true`). YugabyteDB-specific considerations:
+All PostgreSQL advisory lock functions work. YugabyteDB-specific considerations:
 - Locks are **distributed globally** via `pg_advisory_locks` system table (not shared memory) — visible across all nodes.
 - **Session stickiness required:** session-level locks are tied to the backend connection. With smart drivers or connection pooling, ensure sessions stay on the same connection.
-- **Tablet scaling:** configure `--num_advisory_locks_tablets` (default 1) before enabling if you expect high lock throughput across many distinct lock IDs.
 
 ## PostgreSQL Migration Strategy
 
@@ -395,6 +390,6 @@ The application must not be a bottleneck — it must issue concurrency equal to 
 - **Optimistic locking:** `version INT` column, not system columns (`xmin`/`ctid`)
 - **Connection pools:** Baseline: up to 15 server connections per vCPU; use 10 or fewer per vCPU for latency-sensitive workloads. Client pools may multiplex over fewer server connections.
 - **Connection recycling:** When adding nodes, existing connections don't auto-route to new instances. Configure `maxLifetime` and `idleTimeout` to recycle connections periodically.
-- **YSQL Connection Manager:** Built-in server-side connection pooler (enable with `--enable_ysql_conn_mgr=true`). Listens on port 5433 (configurable via `ysql_conn_mgr_port`), supports up to 10k client connections by default. Unlike PgBouncer, supports `SET` statements, `TEMP` tables, and prepared statements. Combine with smart drivers for topology-aware routing.
+- **YSQL Connection Manager:** Built-in server-side connection pooler. Listens on port 5433, supports up to 10k client connections by default. Unlike PgBouncer, supports `SET` statements, `TEMP` tables, and prepared statements. Combine with smart drivers for topology-aware routing.
 - **DDL migrations:** Use a single database connection for migration tools (Flyway, Active Record). DDL propagation across distributed caches can cause constraint violations with concurrent connections.
 - **Extensions:** Pre-bundled — `pg_stat_statements` (enabled by default), `pgcrypto`, `pgvector`, `pg_cron`, `pg_partman`, `postgres_fdw`, `pgAudit`, `pg_trgm`, `pg_hint_plan`, `auto_explain`, `uuid-ossp`, `hstore`. Enable others with `CREATE EXTENSION <name>;`

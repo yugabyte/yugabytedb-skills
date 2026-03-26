@@ -14,18 +14,18 @@ Or pick only what you need:
 
 ```bash
 # PostgreSQL-compatible YSQL API
-npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ysql
+npx skills add yugabyte/yugabytedb-skills -s ysql
 
 # Cassandra-compatible YCQL API
-npx skills add yugabyte/yugabytedb-skills -s yugabytedb-ycql
+npx skills add yugabyte/yugabytedb-skills -s ycql
 ```
 
 ## Available Skills
 
 | Skill              | Description                                                                                                                                                                                                                                                      |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `yugabytedb-ysql`  | SQL and application development against YugabyteDB's PostgreSQL-compatible API — covers anti-patterns, schema design (sharding, indexes, geo-distribution), smart drivers, transaction retries, batching, PostgreSQL migration strategies, and production readiness checklists |
-| `yugabytedb-ycql`  | YCQL (Cassandra-compatible API) development — covers partition keys, clustering columns, global secondary indexes, prepared statements, batching, TTL management, and memory configuration                                                                        |
+| `ysql`  | SQL and application development against YugabyteDB's PostgreSQL-compatible API — covers anti-patterns, schema design (sharding, indexes, geo-distribution), smart drivers, transaction retries, batching, PostgreSQL migration strategies, and production readiness checklists |
+| `ycql`  | YCQL (Cassandra-compatible API) development — covers partition keys, clustering columns, global secondary indexes, prepared statements, batching, TTL management, and memory configuration                                                                        |
 
 ## Learn More
 

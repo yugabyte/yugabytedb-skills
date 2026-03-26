@@ -1,5 +1,5 @@
 ---
-name: yugabytedb-ycql
+name: ycql
 description: Use when writing or reviewing CQL code, schema definitions, or application code that targets YugabyteDB's Cassandra-compatible YCQL API (port 9042). Triggers on YCQL tables, partition keys, TTL, batching, or any mention of YugabyteDB with Cassandra/CQL.
 ---
 
