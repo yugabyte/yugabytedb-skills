@@ -9,28 +9,33 @@ description: Use when writing or reviewing SQL, schema definitions, or applicati
 - `references/smart-drivers.md` — connection examples for Python, Java, Go, Node.js
 - `references/retry-patterns.md` — transaction retry code in Python and Java
 
-YugabyteDB is a distributed, PostgreSQL-compatible database (YSQL on port 5433) that is **ACID-compliant**, **highly available**, **horizontally scalable**, and supports **hash/range sharding** of tables and indexes. **Every SQL operation may involve network RPCs between nodes.** Patterns free in single-node PostgreSQL (heap fetches, sequence increments) become expensive or impossible.
+YugabyteDB is a distributed, PostgreSQL-compatible database (YSQL on port 5433) that is **ACID-compliant**, **highly available**, **horizontally scalable**, and supports **hash/range sharding** of tables and indexes. Every design choice should balance read efficiency, write scalability, and operational cost.
 
-Connection: `postgresql://yugabyte:yugabyte@localhost:5433/yugabyte`
+Connection URI example: `postgresql://yugabyte:yugabyte@localhost:5433/yugabyte`
 
-## Anti-Patterns — Never Use These PostgreSQL Features
+Important: one connection endpoint by itself does not guarantee load balancing. Use driver-native topology/load-balance features where available, and combine with infrastructure load balancing (for example CSP/Kubernetes/Istio) when needed.
 
-| Feature | Why It Fails on YugabyteDB | Use Instead |
-|---------|---------------------------|-------------|
-| `SERIAL` / `BIGSERIAL` PK or `PRIMARY KEY (timestamp, ...)` with range sharding | Monotonic values → all inserts go to the same tablet → write hotspot | See "Primary Key Strategy" below |
-| `CREATE UNLOGGED TABLE` | Silently ignored — all tables are Raft-replicated, `UNLOGGED` keyword accepted but has no effect | Regular table + `TRUNCATE` after processing |
-| `EXCLUDE USING gist(...)` | GiST indexes not supported | App-level validation or triggers |
-| `xmin`, `xmax`, `ctid` | Unreliable — DocDB uses HLC-based MVCC, not heap tuple headers | Explicit `version INT` column for optimistic locking |
-| `USING gist/brin/spgist` | Only B-tree, Hash, GIN, and vector (pgvector) indexes supported | GIN for trigram/FTS: `USING gin (col gin_trgm_ops)` |
-| `MERGE INTO` | Not supported | `INSERT ... ON CONFLICT ... DO UPDATE SET` |
-| `PREPARE TRANSACTION` | Not implemented | Saga or outbox pattern |
 ## Schema Design
 
 ### Primary Key Strategy
 
-The core problem: in a distributed database, all inserts to a monotonic (auto-increment) key go to the **same tablet** → write hotspot. Choose your PK based on the workload:
+Prefer natural primary keys when they are stable and well distributed. Surrogate keys are often useful for legacy integration and interoperability, but they are not automatically the best primary lookup shape for distributed systems.
 
-**Option 1: UUID** — best when IDs don't need to be human-readable or sequential:
+Avoid monotonically increasing leading key values for range-sharded access paths (sequences, timestamps, UUIDv7, lexicographically increasing text IDs).
+
+**Option 1: Natural key with hash+range shape** — best when the domain already provides a stable key:
+```sql
+CREATE TABLE order_lines (
+    order_id UUID,
+    line_id INT,
+    sku TEXT,
+    qty INT,
+    PRIMARY KEY ((order_id) HASH, line_id ASC)
+);
+```
+This keeps all lines for one order together while distributing different orders evenly.
+
+**Option 2: UUID surrogate key** — best when natural keys are unavailable:
 ```sql
 CREATE TABLE orders (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -39,122 +44,131 @@ CREATE TABLE orders (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 ```
-UUIDs from `gen_random_uuid()` are random → writes distribute evenly across tablets with any sharding strategy.
+UUIDv4-style randomness distributes writes evenly.
 
-**Option 2: IDENTITY with HASH sharding** — best when you need sequential, human-readable IDs:
+**Option 3: IDENTITY with HASH sharding** — best when sequential IDs are required:
 ```sql
 CREATE TABLE tickets (
     id BIGINT GENERATED ALWAYS AS IDENTITY,
     title TEXT,
-    PRIMARY KEY (id HASH)  -- HASH distributes monotonic values across tablets
-);
-```
-The `HASH` keyword makes YugabyteDB hash the sequential value for tablet placement. Point lookups by ID still work efficiently.
-
-**Option 3: Natural key** — best when a well-distributed business key already exists:
-```sql
-CREATE TABLE tenant_orders (
-    tenant_id UUID,
-    order_id UUID,
-    data JSONB,
-    PRIMARY KEY (tenant_id, order_id)  -- tenant_id distributes writes; order_id sorts within tenant
+    PRIMARY KEY (id HASH)
 );
 ```
 
-**Decision guide:** Use UUID when no natural key exists and human-readability doesn't matter. Use IDENTITY + HASH when you need auto-increment IDs (ticket numbers, invoice numbers). Use natural keys when the domain provides a well-distributed key (tenant_id, user_id).
+This warning is specifically about using a single hashed tenant key (for example, `PRIMARY KEY ((tenant_id) HASH, ...)`) when tenant sizes are highly uneven. For large-tenant workloads, use a composite hash key (for example, `PRIMARY KEY ((tenant_id, order_id) HASH, ...)`), which distributes load much better.
+
+**Decision guide:** natural distributed key first; UUID second; IDENTITY + HASH when business process requires ordered IDs.
 
 ### Sharding: Hash vs Range
-
 The primary schema difference from PostgreSQL is the choice between hash and range sharding on primary keys and indexes (`HASH` / `ASC` / `DESC`).
 
 **Range sharding** (`ASC` / `DESC`):
-- Perfect for ordered queries and range scans (`BETWEEN`, `>`, `<`)
-- Leads to hot shards when the key is monotonic since all inserts go to the same tablet
+- Preserves key order for range scans and `ORDER BY ... LIMIT`
+- Monotonic inserts (`NOW()`, sequences, UUIDv7, increasing text IDs) append to the newest range tablet and create hot shards/uneven tablet sizes
 
 ```sql
--- Range sharding for ordered queries
-CREATE TABLE player_scores (
-    score      BIGINT,
-    player_id  UUID,
-    username   TEXT,
-    PRIMARY KEY (score ASC, player_id ASC)
+-- Hash PK distributes table writes; plain ASC timestamp index can still hotspot on monotonic inserts
+CREATE TABLE sensor_events (
+    event_id UUID DEFAULT gen_random_uuid(),
+    sensor_id UUID NOT NULL,
+    event_ts TIMESTAMPTZ NOT NULL,
+    payload JSONB,
+    PRIMARY KEY (event_id HASH)
 );
+
+CREATE INDEX idx_sensor_events_ts ON sensor_events (event_ts ASC);
 ```
+
+Important: hash-sharding a table does not automatically prevent hotspotting in secondary indexes. A monotonic index key (for example `event_ts ASC`/`DESC`) can still concentrate writes on the newest index range.
 
 **Hash sharding** (`HASH`):
 - Perfect for even data distribution across nodes
 - Efficient point queries and multi-row lookups on the same hash
-- Limits range queries on the hashed column
+- Does not preserve ordering on the hash key
+- Secondary indexes can still hotspot if their leading key is monotonic
+- Use hash+range combinations when you need both write distribution and ordered retrieval
 
 ```sql
--- Hash sharding for even data distribution across nodes
-CREATE TABLE user_events (
-    event_id UUID DEFAULT gen_random_uuid(),
-    user_id  BIGINT,
-    event_ts TIMESTAMPTZ,
-    payload  JSONB,
-    PRIMARY KEY (event_id HASH)
+-- Hash distributes writes; range key preserves per-player order
+CREATE TABLE player_transactions (
+    player_id UUID,
+    created_at TIMESTAMPTZ,
+    txn_id UUID DEFAULT gen_random_uuid(),
+    payload JSONB,
+    PRIMARY KEY ((player_id) HASH, created_at DESC, txn_id ASC)
 );
 ```
-
 
 ### Tablet Count Management
 
 Minimize total tablet count to reduce overhead:
-- **Colocation:** Group small tables into shared tablets via `CREATE DATABASE ... WITH colocation = true`
-- **SPLIT INTO:** Control tablet count explicitly: `CREATE TABLE ... SPLIT INTO 8 TABLETS`
-- **Automatic splitting:** YugabyteDB can auto-split tablets as data grows; start with fewer tablets for small tables
+- Default to no pre-splitting for average workloads
+- Pre-split (`SPLIT INTO`) only for high ingest/high throughput workloads where starting tablet count materially changes initial performance
+- YugabyteDB auto-splits as data grows; start conservative and expand when telemetry justifies it
+- Colocate small, low-access tables when practical
 
 ### Colocation
 
-Small databases (under ~50 GB) with many tables waste resources when each table gets its own tablets. Colocation places all tables in shared tablets — JOINs between them are local:
+Fully colocated databases are typically best for smaller deployments (roughly under 300 GB) with low sustained write throughput. If any table becomes write-heavy, uncolocate that table.
 
 ```sql
 CREATE DATABASE myapp WITH colocation = true;
 -- All tables colocated by default; JOINs between them are local
 -- Opt out large/high-throughput tables: WITH (colocation = false)
 ```
-Avoid colocating tables that receive disproportionately high load — they will hotspot the shared tablet.
 
-```sql
--- Explicit tablet splits
-CREATE TABLE large_events (...) SPLIT INTO 16 TABLETS;
-```
+Avoid colocating tables that receive disproportionately high load; explicitly uncolocate those hot tables.
 
 ### Index Design
 
-In YugabyteDB every index miss or heap fetch is a **network RPC to another node** — not a local disk read. This makes index strategy far more impactful than in single-node PostgreSQL. Always design indexes from your actual query workload:
+In YugabyteDB every index miss or main table fetch is a **network RPC to another node** — not a local disk read. This makes index strategy far more impactful than in single-node PostgreSQL. Always design indexes from your actual query workload:
 
 ```sql
--- Find queries that need indexes: high calls + high mean_time + high Storage Read Requests
-EXPLAIN (ANALYZE, DIST, COSTS) SELECT ...;  -- check for Seq Scan, Storage Read Requests
-SELECT query, calls, mean_time FROM pg_stat_statements ORDER BY mean_time * calls DESC;
+-- Prioritize by total_time first
+SELECT queryid, calls, total_time, mean_time
+FROM pg_stat_statements
+ORDER BY total_time DESC
+LIMIT 20;
+
+-- Then validate plan quality and rows scanned
+EXPLAIN (ANALYZE, DIST, COSTS) SELECT ...;  -- check for Seq Scan, Storage Read Requests, Storage Rows Scanned
 ```
 
-**Covering indexes** — the single most important YugabyteDB index pattern. INCLUDE all columns your query SELECTs to eliminate heap fetch RPCs:
+**Covering indexes** — the single most important YugabyteDB index pattern. When appropriate, `INCLUDE` all columns your query SELECTs to eliminate main table fetch RPCs:
 ```sql
--- BAD: index finds rows, then heap fetch for name/email = extra RPCs per row
-CREATE INDEX idx_users_status ON users (status);
-SELECT status, name, email FROM users WHERE status = 'active';
+-- BAD for read-heavy query: requires heap fetch on every row
+CREATE INDEX idx_sessions_account_seen ON sessions (account_id, seen_at DESC);
+SELECT account_id, seen_at, device_type
+FROM sessions
+WHERE account_id = $1
+ORDER BY seen_at DESC
+LIMIT 50;
 
--- GOOD: Index Only Scan — all data served from index, zero heap fetches
-CREATE INDEX idx_users_status ON users (status) INCLUDE (name, email);
+-- GOOD for read-heavy query: Index Only Scan candidate
+CREATE INDEX idx_sessions_account_seen_cover
+ON sessions (account_id, seen_at DESC) INCLUDE (device_type);
 ```
-Every column not in the index forces a cross-node RPC to fetch the full row. If `EXPLAIN (ANALYZE, DIST)` shows `Storage Read Requests` much higher than rows returned, you need a covering index.
+
+Tradeoff: indexing frequently updated columns increases write amplification. Favor covering indexes on read-heavy, low-update columns.
 
 **Composite indexes** — for multi-column queries. Column order matters: equality columns first, range columns last:
 ```sql
--- Efficient: status (=) first, created_at (range) second
-CREATE INDEX idx_orders_status_date ON orders (status, created_at DESC);
+-- Better distributed example for YugabyteDB
+CREATE INDEX idx_player_txn_player_created
+ON player_transactions (player_id HASH, created_at DESC);
 
--- Uses index: WHERE status = 'pending' AND created_at > '2024-01-01'
--- Uses index: WHERE status = 'pending' (leftmost prefix)
--- DOES NOT use index: WHERE created_at > '2024-01-01' alone
+-- Uses index:
+-- WHERE player_id = $1 AND created_at > now() - interval '7 days'
+-- WHERE player_id = $1
+-- Does not use index efficiently:
+-- WHERE created_at > now() - interval '7 days'  -- missing equality on player_id
 
--- Add INCLUDE for covering:
-CREATE INDEX idx_orders_covering ON orders (status, created_at DESC) INCLUDE (customer_id, total);
+-- Covering variant:
+CREATE INDEX idx_player_txn_cover
+ON player_transactions (player_id HASH, created_at DESC) INCLUDE (payload);
 ```
-Avoid separate single-column indexes for queries that filter on multiple columns — in distributed DB, combining two indexes is much more expensive than one composite index.
+
+Index your queries, not your columns. Avoid speculative single-column indexes that are never used by real query shapes.
 
 **Partial indexes** — only index rows that queries actually need. Smaller index = less storage, faster writes, faster scans:
 ```sql
@@ -177,29 +191,23 @@ CREATE INDEX idx_orders_customer ON orders (customer_id);
 
 **Index overhead** — each index adds write RPCs (data is written to index tablets too). Don't add indexes speculatively; verify queries need them via `pg_stat_statements` and `EXPLAIN (ANALYZE, DIST)`. Remove redundant indexes (two indexes starting with the same column).
 
-**Hotspot prevention** — for high-write timestamp indexes:
-```sql
--- BEFORE: hotspot on timestamp-leading index
-CREATE INDEX ON events (timestamp DESC);
+**Index ordering and scalability**
 
--- AFTER: perfect write distribution across 3 buckets
-CREATE INDEX ON events (
-    (yb_hash_code(timestamp) % 3) ASC,
-    timestamp DESC
-) SPLIT AT VALUES ((0), (1), (2));
-```
-The modulo value determines node-placement buckets (can be increased later with a new index). A hotspot is acceptable if that object's throughput stays within a single node's capability.
+How do you preserve ordered reads while scaling monotonic inserts on an ASC/DESC key?
+Use a low-cardinality bucket prefix:
 
-**Natural primary keys** — when the domain provides a unique, well-distributed key, using it as PK avoids an extra surrogate column and index. The primary key IS the data, so point lookups need zero heap fetches:
 ```sql
-CREATE TABLE account_balances (
-    account_id UUID,
-    currency TEXT,
-    balance DECIMAL(18,2),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (account_id, currency)
-);
+CREATE INDEX idx_events_bucket_ts
+ON events ((yb_hash_code(timestamp) % 3) ASC, timestamp ASC)
+SPLIT AT VALUES ((1), (2));
 ```
+
+Bucket design recommendations:
+- Start bucket count from expected write throughput (not only node count); increase as needed
+- For unique index/PK designs, `yb_hash_code(...)` inputs should be a subset of unique key columns
+- `SPLIT AT VALUES` is optional but recommended for predictable initial distribution
+- Keep bucket expression first in the index key
+- This design scales writes while still supporting ordered reads via merge patterns
 
 ### Geo-Distribution
 
@@ -231,6 +239,10 @@ CREATE TABLE orders_eu PARTITION OF orders FOR VALUES IN ('eu-west-1') TABLESPAC
 
 If your source system is partitioned only for size management, consider wider partitions or no partitions — YugabyteDB naturally shards relations. Only use partitioning for geo-distribution or time-based data lifecycle (detach + drop old partitions instead of DELETE).
 
+Keep partition counts low. Very fine-grained partitions (for example, daily partitions retained for years) create unnecessary tablet overhead.
+
+If partitioning provides only marginal value for your workload, keep the model simpler.
+
 ### Data Type Guidance
 - **JSONB:** Use only for truly dynamic schema scenarios. Regular columns outperform JSONB for frequent access patterns.
 
@@ -241,7 +253,6 @@ If your source system is partitioned only for size management, consider wider pa
 ## Application Patterns
 
 ### Smart Drivers (Client-Side Load Balancing)
-
 Without smart drivers, the application connects to a single address — it has no awareness of cluster topology and cannot distribute connections across nodes. Always use `load_balance=true` and `topology_keys` for zone-aware routing.
 
 > **Connection examples for Python, Java, Go, Node.js:** see [references/smart-drivers.md](references/smart-drivers.md)
@@ -250,15 +261,19 @@ Topology keys format: `cloud.region.zone:priority` (1=primary, 2=fallback, `*`=w
 
 ### Concurrency Control: Wait-on-Conflict
 
-YugabyteDB defaults to **Wait-on-Conflict** — transactions queue on contention instead of aborting, matching PostgreSQL semantics. Distributed deadlock detection is active automatically. Combine with `lock_timeout` to bound wait time.
+YugabyteDB defaults to **Wait-on-Conflict** — transactions queue on contention instead of immediate aborts, matching PostgreSQL semantics. Distributed deadlock detection is active automatically.
+
+For highly contentious workloads, reducing `wait_queue_poll_interval_ms` can improve lock-wait responsiveness.
 
 ### Transaction Retry
 
-`40001` (serialization failure) and `40P01` (deadlock) occur under write concurrency. With **Wait-on-Conflict** (default) they are rare; with **Fail-on-Conflict** they are **common**. Always ROLLBACK before retry. Exponential backoff + jitter. Bounded retries (3–10). Design for idempotency.
+`40001` (serialization failure) and `40P01` (deadlock) are still normal under write concurrency. Always implement client retries with rollback, exponential backoff, jitter, and bounded attempts (typically 3-10). Design write paths to be idempotent.
 
 > **Retry code for Python and Java:** see [references/retry-patterns.md](references/retry-patterns.md)
 
 ### Timeouts (Always Set)
+Set `statement_timeout` to at least 30 seconds, or about 2-3x your longest expected query in that context. Apply at connection/session scope when possible; database-level defaults are broader and should be used deliberately.
+
 ```python
 conn = psycopg2.connect("...",
     options="-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000")
@@ -268,7 +283,8 @@ conn = psycopg2.connect("...",
 Use protocol-level prepared statements (parameterized queries) rather than explicit `PREPARE`/`EXECUTE`. Protocol-level prepared statements are preferred because they maintain connection flexibility with server-side pooling (PgBouncer, YSQL Connection Manager).
 
 ### Batch Operations
-Use multi-row INSERT and INSERT ON CONFLICT for superior throughput over individual row operations, since it reduces the number of network round-trips:
+Use batching/micro-batching wherever practical. Multi-row INSERT and INSERT ON CONFLICT generally outperform single-row operations by reducing network round-trips:
+
 ```sql
 INSERT INTO orders (id, customer_id, total) VALUES
     (gen_random_uuid(), $1, $2),
@@ -293,14 +309,15 @@ For time-series: `ALTER TABLE events DETACH PARTITION old_partition; DROP TABLE 
 ```sql
 CREATE SEQUENCE order_seq CACHE 100;
 ```
-Identity columns (`GENERATED ALWAYS AS IDENTITY`) use an implicit sequence with CACHE 100. For high-throughput inserts, set `ysql_sequence_cache_minval` on the tserver or create an explicit sequence with larger CACHE.
+Identity columns (`GENERATED ALWAYS AS IDENTITY`) already use an implicit sequence cache of 100 by default. Keep default settings for most workloads; tune explicit sequence cache or the tserver-level `ysql_sequence_cache_minval` flag only for sustained high-ingest patterns.
 
 ### EXPLAIN (ANALYZE, DIST)
 ```sql
 EXPLAIN (ANALYZE, DIST, COSTS) SELECT * FROM orders WHERE customer_id = $1;
 ```
-Key metrics: `Storage Read Requests` (RPCs, lower=better), `Storage Rows Scanned`, `Index Only Scan` (ideal) vs `Seq Scan` (bad for large tables).
+Key metrics: `Storage Read Requests` (RPCs), `Storage Rows Scanned`, and scan type.
 
+`Index Scan` is often fine when returning few rows. For larger projections, `Index Only Scan` can reduce resource use and improve latency when the index covers selected columns.
 
 ### Long-Running Read Snapshots
 For batch jobs that need consistent reads without contention:
@@ -309,6 +326,7 @@ BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE;
 -- long-running queries here
 COMMIT;
 ```
+The Below is also useful for long-running jobs where stable reads and reduced cross-AZ chatter are priorities.
 
 ### Follower Reads (Low-Latency Stale Reads)
 Route read-only queries to the nearest replica instead of the tablet leader:
@@ -322,12 +340,15 @@ SELECT * FROM analytics WHERE region = 'us-east'; -- served from closest replica
 - Staleness applies even when reading from the leader — all reads are stale by `yb_follower_read_staleness_ms`.
 - Ideal for dashboards, analytics, and read replicas where sub-second freshness is not required.
 
-### Parallel Scans for Large Tables
-Use `yb_hash_code` to parallelize large SELECT or DELETE operations across tablets:
+### yb_hash_code
+Use `yb_hash_code` to chunk large READ/WRITE operations:
 ```sql
 SELECT * FROM large_table WHERE yb_hash_code(id) BETWEEN 0 AND 5000;
 SELECT * FROM large_table WHERE yb_hash_code(id) BETWEEN 5001 AND 10000;
 ```
+
+Use this for chunking high-cardinality HASH columns.
+For Range columns which need PQ, use PostgreSQL parallel query features where appropriate (`Parallel Seq Scan`, `Parallel Index Scan`, `Parallel Append`) to push true parallelism into query execution.
 
 ### Advisory Locks
 
@@ -341,8 +362,8 @@ Apply these four levels progressively. Start with Level 1 — only advance when 
 
 ### Level 1: Lift and Shift (Always Do This)
 
-- Replace unsupported features (see Anti-Patterns table above)
-- Switch to range sharding by default; use hash sharding for sequential PKs
+- Replace unsupported features (see PG Feature Awareness table)
+- Choose hash vs range sharding by access pattern; avoid range-leading monotonic keys for write-heavy paths
 - Add missing indexes — in distributed environments, missing indexes cause larger performance loss than single-node
 - Remove redundant indexes (two indexes on the same column are common in production)
 - Use partial indexes for high null_frac columns
@@ -355,9 +376,8 @@ Apply these four levels progressively. Start with Level 1 — only advance when 
 
 ### Level 3: Linear Write Scalability
 
-- Apply modulo-bucketed indexes on timestamp columns (see Hotspot Prevention above)
+- Apply modulo-bucketed indexes on timestamp columns (see Index ordering and scalability above)
 - **ORDER BY LIMIT caveat:** modulo-bucketed indexes don't produce globally ordered results. Merge each bucket's output:
-
 ```sql
 SELECT * FROM (
     SELECT * FROM events WHERE (yb_hash_code(timestamp) % 3) = 0 ORDER BY timestamp DESC LIMIT 10
@@ -367,6 +387,23 @@ SELECT * FROM (
     SELECT * FROM events WHERE (yb_hash_code(timestamp) % 3) = 2 ORDER BY timestamp DESC LIMIT 10
 ) sub ORDER BY timestamp DESC LIMIT 10;
 ```
+
+Where available in your YugabyteDB version, evaluate planner settings that provide transparent merge / IN-list pushdown for bucketed lookups: Use Version 2025.2.Latest
+
+```sql
+ANALYZE events;
+SET yb_max_saop_merge_streams = 64;
+SET yb_enable_derived_saops = true;
+SET yb_enable_derived_equalities = true;
+SET yb_enable_cbo = on;
+
+ALTER DATABASE yugabyte SET yb_max_saop_merge_streams = 64;
+ALTER DATABASE yugabyte SET yb_enable_derived_saops = true;
+ALTER DATABASE yugabyte SET yb_enable_derived_equalities = true;
+ALTER DATABASE yugabyte SET yb_enable_cbo = on;
+```
+
+UNION ALL View is not required with saop enabled
 
 ### Level 4: End-to-End Optimization
 
@@ -382,9 +419,27 @@ The application must not be a bottleneck — it must issue concurrency equal to 
 - **Write-only workloads** (per-statement commits): 0.5–2 threads per YugabyteDB core
 - A 4-thread application cannot saturate a 12-core YugabyteDB universe
 
+## PG Feature Awareness
+
+| PG Feature | YugabyteDB | Use Instead |
+| --- | --- | --- |
+| `SERIAL` / `BIGSERIAL` PK or `PRIMARY KEY (timestamp, ...)` with pure range sharding | Monotonic values append into the newest range tablet and hotspot writes | Use `PRIMARY KEY (... HASH)` or a non-monotonic natural key pattern for range-sharded primary keys |
+| `CREATE UNLOGGED TABLE` | Silently ignored — all tables are Raft-replicated, `UNLOGGED` keyword accepted but has no effect | Regular table + `TRUNCATE` after processing |
+| `EXCLUDE USING gist(...)`, or GiST/SP-GiST index plans | GiST/SP-GiST are not supported in YSQL | Use app-level validation, triggers, or alternate schema design |
+| BRIN-only index strategies | BRIN is not supported | Use B-tree (and partial/composite indexes) based on query patterns |
+| `xmin`, `xmax`, `ctid` | Unreliable — DocDB uses HLC-based MVCC, not heap tuple headers | Explicit `version INT` column for optimistic locking |
+| `MERGE INTO` | Not supported | `INSERT ... ON CONFLICT ... DO UPDATE SET` |
+| `PREPARE TRANSACTION` | Not implemented | Saga or outbox pattern |
+
+`version INT` optimistic locking is valid in YugabyteDB. Keep it explicit in SQL (`WHERE version = ?`) and increment version in the same write statement.
+
+For latitude/longitude search patterns, use SQL for broad pre-filtering/range scans and perform precise geo-distance checks in the middle tier if needed.
+
 ## Production Checklist
 
-- **DDL safety:** Avoid DDL in transactions (not transactional by default). Single connection. Allow catalog propagation time.
+- **DDL safety:** Use a single connection for schema changes and allow catalog propagation time; avoid relying on transactional DDL unless that mode is explicitly enabled in your version/config.
+- **Table-level locking:** Enable/use explicit table-level locking patterns when your migration or operational flow requires it.
+- **DDL execution modes:** If supported by your YugabyteDB version, evaluate concurrent DDL and transactional DDL features for safer online schema changes.
 - **TLS:** `sslmode=verify-full` + `sslrootcert`, `sslcert`, `sslkey` in connection string
 - **Observability:** Log retry count/delay/SQLSTATE. Differentiate transient (40001, 40P01) vs terminal (42xxx, 23xxx). Monitor tablet leader distribution.
 - **Optimistic locking:** `version INT` column, not system columns (`xmin`/`ctid`)
