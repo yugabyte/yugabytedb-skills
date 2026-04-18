@@ -4,7 +4,7 @@ This file provides guidance to AI agents when working with yugabyteDB.
 
 ## Project Overview
 
-YugabyteDB Agent Skills — a collection of reusable AI agent skills (delivered as Markdown files) for generating correct, optimized YugabyteDB code. Published to the Claude Plugin Marketplace and compatible with Claude Code, Cursor, GitHub Copilot, Windsurf, Gemini, and any tool supporting the [skills.sh](https://skills.sh) ecosystem.
+YugabyteDB Agent Skills — a collection of reusable AI agent skills (delivered as Markdown files) for deploying, managing and developing for YugabyteDB, a Postgres-compatible distributed SQL database. Published to the Claude Plugin Marketplace and compatible with Claude Code, Cursor, GitHub Copilot, Windsurf, Gemini, and any tool supporting the [skills.sh](https://skills.sh) ecosystem.
 
 **This is a documentation-only repository.** There is no build system, test suite, or application code.
 
@@ -19,6 +19,13 @@ skills/
       retry-patterns.md       # Transaction retry code in Python and Java
   ycql/
     SKILL.md                  # Cassandra-compatible YCQL API skill (port 9042)
+  k8s-operator/
+    SKILL.md                  # YugabyteDB Kubernetes Operator skill
+    references/
+      crd-examples.md         # Example Custom Resources
+      kubeconfig-secrets.md   # Guidance for kubeconfig Secrets to allow Operator to manage remote clusters
+      multi-cluster.md        # Guidance and examples specific to multi-cluster topologies with service meshes (e.g. Istio, Cilium, MCS)
+      workflows.md            # Step-by-step instructions for common deployment scenarios
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
 ```
@@ -49,7 +56,8 @@ The `name` and `description` fields in frontmatter must stay in sync with the co
 ## Installation Commands (for reference)
 
 ```bash
-npx skills add yugabyte/yugabytedb-skills              # All skills
-npx skills add yugabyte/yugabytedb-skills -s ysql   # YSQL only
-npx skills add yugabyte/yugabytedb-skills -s ycql   # YCQL only
+npx skills add yugabyte/yugabytedb-skills                 # All skills
+npx skills add yugabyte/yugabytedb-skills -s ysql         # YSQL only
+npx skills add yugabyte/yugabytedb-skills -s ycql         # YCQL only
+npx skills add yugabyte/yugabytedb-skills -s k8s-operator # Kubernetes Operator skill only
 ```
