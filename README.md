@@ -26,7 +26,7 @@ npx skills add yugabyte/yugabytedb-skills -s ycql
 |-|-|
 |`ysql`|SQL and application development against YugabyteDB's PostgreSQL-compatible API — covers anti-patterns, schema design (sharding, indexes, geo-distribution), smart drivers, transaction retries, batching, PostgreSQL migration strategies, and production readiness checklists |
 |`ycql`|YCQL (Cassandra-compatible API) development — covers partition keys, clustering columns, global secondary indexes, prepared statements, batching, TTL management, and memory configuration |
-|`k8s-operator`|YugabyteDB Kubernetes Operator - deploying and managing YugabyteDB universes on Kubernetes through the YugabyteDB Anywhere or YugabyteDB (OSS) Kubernetes Operators|
+|`yb-k8s-operator`|YugabyteDB Kubernetes Operator - deploying and managing YugabyteDB universes on Kubernetes through the YugabyteDB Anywhere or YugabyteDB (OSS) Kubernetes Operators|
 
 ## Learn More
 

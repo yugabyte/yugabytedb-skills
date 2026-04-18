@@ -19,7 +19,7 @@ skills/
       retry-patterns.md       # Transaction retry code in Python and Java
   ycql/
     SKILL.md                  # Cassandra-compatible YCQL API skill (port 9042)
-  k8s-operator/
+  yb-k8s-operator/
     SKILL.md                  # YugabyteDB Kubernetes Operator skill
     references/
       crd-examples.md         # Example Custom Resources
@@ -56,8 +56,8 @@ The `name` and `description` fields in frontmatter must stay in sync with the co
 ## Installation Commands (for reference)
 
 ```bash
-npx skills add yugabyte/yugabytedb-skills                 # All skills
-npx skills add yugabyte/yugabytedb-skills -s ysql         # YSQL only
-npx skills add yugabyte/yugabytedb-skills -s ycql         # YCQL only
-npx skills add yugabyte/yugabytedb-skills -s k8s-operator # Kubernetes Operator skill only
+npx skills add yugabyte/yugabytedb-skills                    # All skills
+npx skills add yugabyte/yugabytedb-skills -s ysql            # YSQL only
+npx skills add yugabyte/yugabytedb-skills -s ycql            # YCQL only
+npx skills add yugabyte/yugabytedb-skills -s yb-k8s-operator # Kubernetes Operator skill only
 ```
