@@ -18,6 +18,9 @@ npx skills add yugabyte/yugabytedb-skills -s ysql
 
 # Cassandra-compatible YCQL API
 npx skills add yugabyte/yugabytedb-skills -s ycql
+
+# YugabyteDB Anywhere REST API
+npx skills add yugabyte/yugabytedb-skills -s yba-api
 ```
 
 ## Available Skills
@@ -27,6 +30,7 @@ npx skills add yugabyte/yugabytedb-skills -s ycql
 |`ysql`|SQL and application development against YugabyteDB's PostgreSQL-compatible API — covers anti-patterns, schema design (sharding, indexes, geo-distribution), smart drivers, transaction retries, batching, PostgreSQL migration strategies, and production readiness checklists |
 |`ycql`|YCQL (Cassandra-compatible API) development — covers partition keys, clustering columns, global secondary indexes, prepared statements, batching, TTL management, and memory configuration |
 |`yb-k8s-operator`|YugabyteDB Kubernetes Operator - deploying and managing YugabyteDB universes on Kubernetes through the YugabyteDB Anywhere or YugabyteDB (OSS) Kubernetes Operators|
+|`yba-api`|YugabyteDB Anywhere REST API — using the YugabyteDB Anywhere REST API to create, observe, manage and deploy YugabyteDB universes in a range of infrastructure topologies and clouds|
 
 ## Learn More
 

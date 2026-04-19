@@ -26,6 +26,13 @@ skills/
       kubeconfig-secrets.md   # Guidance for kubeconfig Secrets to allow Operator to manage remote clusters
       multi-cluster.md        # Guidance and examples specific to multi-cluster topologies with service meshes (e.g. Istio, Cilium, MCS)
       workflows.md            # Step-by-step instructions for common deployment scenarios
+  yba-api/
+    SKILL.md                  # YugabyteDB Anywhere REST API skill (auth, v1 vs v2, async tasks)
+    references/
+      python-client.md        # Minimal Python wrapper plus splat-style usage patterns
+      powershell-client.md    # Standalone PowerShell wrapper (no module install required)
+      recipes.md              # Endpoint cheat-sheet: providers, releases, v1/v2 universe creation (cloud + k8s), storage configs (S3 multi-region + proxy), telemetry providers, health checks + alerts, runtime config (all scopes), backups, tasks
+      prometheus.md           # Querying the Prometheus instance bundled with YBA on :9090 — useful PromQL for ops/sec, latency, container CPU/memory, node-exporter CPU, tablet leaders, xCluster lag, plus Python/PowerShell helpers
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
 ```
@@ -60,4 +67,5 @@ npx skills add yugabyte/yugabytedb-skills                    # All skills
 npx skills add yugabyte/yugabytedb-skills -s ysql            # YSQL only
 npx skills add yugabyte/yugabytedb-skills -s ycql            # YCQL only
 npx skills add yugabyte/yugabytedb-skills -s yb-k8s-operator # Kubernetes Operator skill only
+npx skills add yugabyte/yugabytedb-skills -s yba-api         # YBA REST API skill only
 ```
