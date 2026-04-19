@@ -33,7 +33,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./skills/k8s-operator"
+        "./skills/yb-k8s-operator"
       ]
     }
   ]
