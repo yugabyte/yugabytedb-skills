@@ -15,11 +15,13 @@ helm install yba yugabytedb/yugaware \
   --version 2025.2.2 \
   --namespace yb-platform --create-namespace \
   --set yugaware.kubernetesOperatorEnabled=true \
-  --set yugaware.kubernetesOperatorNamespace='yb-operator' \
+  --set yugaware.kubernetesOperatorNamespace='' \
+  --set rbac.enabled=true \
   --set yugaware.defaultUser.enabled=true \
   --set yugaware.defaultUser.username='admin' \
   --set yugaware.defaultUser.email='admin@example.com' \
-  --set yugaware.defaultUser.password='SecureP@ss123'
+  --set yugaware.defaultUser.password='SecureP@ss123' \
+  --wait --timeout 1200s
 ```
 
 `yugaware.defaultUser` need not be set in secure environments - it only creates a job which invokes an API request to complete initial registration for the default administrative user. If it is excluded the registration can be completed separately after YBA is deployed:
