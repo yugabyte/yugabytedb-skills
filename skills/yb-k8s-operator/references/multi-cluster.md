@@ -133,7 +133,7 @@ spec:
 
 ## Cilium ClusterMesh with Global Services (Not Recommended)
 
-When MCS API and endpoint sync are **not** enabled, Cilium ClusterMesh can still work using Global Services. This approach requires manual service annotation after the universe is created and is not recommended for new deployments.
+When MCS API and endpoint sync are **not** enabled, Cilium ClusterMesh can still work using Global Services. This approach requires manual service annotation after the universe is created and is **not supported** by Yugabyte.
 
 **Per-zone overrides:**
 
