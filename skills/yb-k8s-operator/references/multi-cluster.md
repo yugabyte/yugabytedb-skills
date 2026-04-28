@@ -91,6 +91,8 @@ Replace `<cluster-name>` with the Cilium cluster name for that zone (e.g. `irela
 
 **Full provider example:**
 
+Replace {placeholder} values as needed. This uses one region for two clusters from that geographical region. It is acceptable to separate clusters among different regions in the provider too.
+
 ```yaml
 apiVersion: operator.yugabyte.io/v1alpha1
 kind: YBProvider
@@ -98,35 +100,35 @@ metadata:
   name: cilium-mcs-provider
 spec:
   cloudInfo:
-    kubernetesProvider: gke
+    kubernetesProvider: custom
     kubernetesImageRegistry: quay.io/yugabyte/yugabyte
   regions:
-    - code: europe-west1
+    - code: {region_code}
       zones:
-        - code: ireland
+        - code: {cluster_1_name}
           cloudInfo:
             kubeNamespace: yb
             kubernetesStorageClass: yb-standard
-            kubePodAddressTemplate: "{pod_name}.ireland.{service_name}.{namespace}.svc.{cluster_domain}"
+            kubePodAddressTemplate: "{pod_name}.{cluster_1_region_code}.{service_name}.{namespace}.svc.{cluster_domain}"
             kubeConfigSecret:
-              name: ireland-kubeconfig
+              name: {cluster_1_name}-kubeconfig
               namespace: yba
             overrides:
               multicluster:
                 createServiceExports: true
-                kubernetesClusterId: ireland
-        - code: frankfurt
+                kubernetesClusterId: {cluster_1_name}
+        - code: {cluster_2_name}
           cloudInfo:
             kubeNamespace: yb
             kubernetesStorageClass: yb-standard
-            kubePodAddressTemplate: "{pod_name}.frankfurt.{service_name}.{namespace}.svc.{cluster_domain}"
+            kubePodAddressTemplate: "{pod_name}.{cluster_2_name}.{service_name}.{namespace}.svc.{cluster_domain}"
             kubeConfigSecret:
-              name: frankfurt-kubeconfig
+              name: {cluster_2_name}-kubeconfig
               namespace: yba
             overrides:
               multicluster:
                 createServiceExports: true
-                kubernetesClusterId: frankfurt
+                kubernetesClusterId: {cluster_2_name}
 ```
 
 ---
