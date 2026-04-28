@@ -454,13 +454,15 @@ helm install yba yugabytedb/yugaware \
   --set yugaware.defaultUser.password='<password>'
 ```
 
-To upgrade an existing YBA:
+To upgrade an existing YBA and enable the operator functionality, watching all namespaces:
 ```bash
 kubectl apply -f https://raw.github.com/yugabyte/charts/<version>/crds/concatenated_crd.yaml
 
 helm upgrade yba yugabytedb/yugaware --version <version> \
+  --namespace yb-platform \
+  --reset-then-reuse-values \
   --set yugaware.kubernetesOperatorEnabled=true \
-  --set yugaware.kubernetesOperatorNamespace='<operator-namespace>'
+  --set yugaware.kubernetesOperatorNamespace=''
 ```
 
 Verify:
