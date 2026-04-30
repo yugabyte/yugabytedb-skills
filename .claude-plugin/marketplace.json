@@ -26,6 +26,15 @@
       "skills": [
         "./skills/ycql"
       ]
+    },
+    {
+      "name": "yb-k8s-operator",
+      "description": "Use when provisioning, managing, or troubleshooting YugabyteDB universes on Kubernetes via the YugabyteDB Kubernetes Operator and YugabyteDB Anywhere CRDs (YBUniverse, YBProvider, Release, Backup, StorageConfig, etc.). Triggers on kubectl apply, Helm install of yugaware, operator CRDs, or any mention of YugabyteDB with Kubernetes.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yb-k8s-operator"
+      ]
     }
   ]
 }
