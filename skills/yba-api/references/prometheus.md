@@ -49,7 +49,7 @@ PromQL filters reference labels that map to YBA concepts. Pull them from the YBA
 
 | PromQL label | Where it comes from |
 |---|---|
-| `node_prefix` | `GET /api/v1/customers/{cid}/universes/{uni}` → `universeDetails.nodePrefix`. Looks like `yb-<env>-<universe-name>-<n>` (cloud) or `ybmwam-<id>-<region>-<az>-<...>` (k8s). |
+| `node_prefix` | `GET /api/v1/customers/{cid}/universes/{uni}` → `universeDetails.nodePrefix`. Looks like `yb-<env>-<universe-name>-<n>` (cloud) or `yb-<id>-<region>-<az>-<...>` (k8s). |
 | `pod_name=~...` (k8s) | `universeDetails.nodeDetailsSet[].nodeName` from the same response, joined with `\|` and turned into a regex. The tserver pods follow `<node>-yb-tserver-N` and master pods `<node>-yb-master-N`. |
 | `namespace=~...` (k8s) | `universeDetails.nodeDetailsSet[].cloudInfo.kubernetesNamespace` (deduplicated, joined with `\|`). |
 | `service_type` | Component being scraped: `SQLProcessor` (YSQL/YCQL), `TabletServerService` (read/write paths), `ConsensusService`, `RaftServer`, etc. |
@@ -80,7 +80,7 @@ All queries below assume `node_prefix` is the value you fetched from the univers
 ```promql
 sum(avg_over_time(rpc_irate_rps{
     service_type="SQLProcessor",
-    node_prefix="yb-dev-mwam-914787231",
+    node_prefix="yb-dev-universe-914787231",
     server_type="yb_cqlserver",
     service_method=~"SelectStmt|InsertStmt|UpdateStmt|DeleteStmt|OtherStmts|Transaction"
 }[30s])) by (service_method)
@@ -96,7 +96,7 @@ A canonical "average over the window" pattern: divide the rate of the histogram'
 (
   avg(rate(rpc_latency_sum{
     service_type="SQLProcessor",
-    node_prefix="yb-dev-mwam-914787231",
+    node_prefix="yb-dev-universe-914787231",
     server_type="yb_cqlserver",
     service_method=~"SelectStmt|InsertStmt|UpdateStmt|DeleteStmt|OtherStmts|Transaction"
   }[30s])) by (service_method)
@@ -105,7 +105,7 @@ A canonical "average over the window" pattern: divide the rate of the histogram'
 (
   avg(rate(rpc_latency_count{
     service_type="SQLProcessor",
-    node_prefix="yb-dev-mwam-914787231",
+    node_prefix="yb-dev-universe-914787231",
     server_type="yb_cqlserver",
     service_method=~"SelectStmt|InsertStmt|UpdateStmt|DeleteStmt|OtherStmts|Transaction"
   }[30s])) by (service_method)
@@ -117,7 +117,7 @@ For p99 instead of average:
 ```promql
 histogram_quantile(0.99,
   sum(rate(rpc_latency_bucket{
-    service_type="SQLProcessor", node_prefix="yb-dev-mwam-914787231",
+    service_type="SQLProcessor", node_prefix="yb-dev-universe-914787231",
     server_type="yb_cqlserver", service_method=~"Select.*|Insert.*"
   }[1m])) by (le, service_method)
 )
@@ -129,7 +129,7 @@ histogram_quantile(0.99,
 avg(avg_over_time(container_cpu_usage{
     container_name="yb-tserver",
     namespace=~"default|default|default",
-    pod_name=~"ybmwam-914787-urope-west2-a-uamw-yb-tserver-(.*)|ybmwam-914787-urope-west2-b-vamw-yb-tserver-(.*)|ybmwam-914787-urope-west2-c-wamw-yb-tserver-(.*)"
+    pod_name=~"ybuniverse-914787-urope-west2-a-uamw-yb-tserver-(.*)|ybuniverse-914787-urope-west2-b-vamw-yb-tserver-(.*)|ybuniverse-914787-urope-west2-c-wamw-yb-tserver-(.*)"
 }[30s])) * 100
 ```
 
@@ -151,7 +151,7 @@ For non-Kubernetes universes the `container_*` series do not exist; use `node_cp
 
 ```promql
 100 - avg(rate(node_cpu{
-    node_prefix="yb-dev-mwam-914787231",
+    node_prefix="yb-dev-universe-914787231",
     mode="idle"
 }[1m])) by (exported_instance) * 100
 ```
@@ -160,11 +160,11 @@ For non-Kubernetes universes the `container_*` series do not exist; use `node_cp
 
 ```promql
 sum(node_filesystem_size{
-    node_prefix="yb-dev-mwam-914787231",
+    node_prefix="yb-dev-universe-914787231",
     mountpoint=~"/mnt/d.*"
 }
  - node_filesystem_free{
-    node_prefix="yb-dev-mwam-914787231",
+    node_prefix="yb-dev-universe-914787231",
     mountpoint=~"/mnt/d.*"
 }) by (exported_instance)
 ```
@@ -172,7 +172,7 @@ sum(node_filesystem_size{
 ### Tablet leader count per tserver (placement balance)
 
 ```promql
-sum(tablet_leaders{node_prefix="yb-dev-mwam-914787231"}) by (exported_instance)
+sum(tablet_leaders{node_prefix="yb-dev-universe-914787231"}) by (exported_instance)
 ```
 
 If counts are very uneven, the universe is leader-imbalanced — relevant when you've just resized or added zones.
@@ -180,7 +180,7 @@ If counts are very uneven, the universe is leader-imbalanced — relevant when y
 ### WAL replication lag (xCluster / read-replica)
 
 ```promql
-max(async_replication_committed_lag_micros{node_prefix="yb-dev-mwam-914787231"}) by (table_id) / 1e6
+max(async_replication_committed_lag_micros{node_prefix="yb-dev-universe-914787231"}) by (table_id) / 1e6
 ```
 
 Returns committed lag per replicated table in seconds.
@@ -191,11 +191,11 @@ Two endpoints are invaluable when writing a new query:
 
 ```bash
 # All metric names matching a substring
-curl -sG "http://yba:9090/api/v1/label/__name__/values" --data-urlencode 'match[]={node_prefix="yb-dev-mwam-914787231"}' \
+curl -sG "http://yba:9090/api/v1/label/__name__/values" --data-urlencode 'match[]={node_prefix="yb-dev-universe-914787231"}' \
   | jq '.data[]' | grep -i latency
 
 # All values a label takes for a given metric
-curl -sG "http://yba:9090/api/v1/series" --data-urlencode 'match[]=rpc_latency_count{node_prefix="yb-dev-mwam-914787231"}' \
+curl -sG "http://yba:9090/api/v1/series" --data-urlencode 'match[]=rpc_latency_count{node_prefix="yb-dev-universe-914787231"}' \
   | jq '.data[].service_method' | sort -u
 ```
 
