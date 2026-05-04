@@ -35,6 +35,15 @@
       "skills": [
         "./skills/yb-k8s-operator"
       ]
+    },
+    {
+      "name": "yba-api",
+      "description": "Use when scripting, automating, or troubleshooting with YugabyteDB Anywhere (YBA) \u2014 the control-plane for YugabyteDB which creates and manages providers, releases, universes, backups, KMS, and DR. Uses the YBA REST API and triggers on /api/v1/, /api/v2/, X-AUTH-YW-API-TOKEN, apiToken, customerUUID, taskUUID, registration of a new YBA instance, or any mention of the YBA API. Does NOT cover YugabyteDB Aeon or database access via YSQL/YCQL.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yba-api"
+      ]
     }
   ]
 }
