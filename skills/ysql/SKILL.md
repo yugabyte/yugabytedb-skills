@@ -448,3 +448,15 @@ For latitude/longitude search patterns, use SQL for broad pre-filtering/range sc
 - **YSQL Connection Manager:** Built-in server-side connection pooler. Listens on port 5433, supports up to 10k client connections by default. Unlike PgBouncer, supports `SET` statements, `TEMP` tables, and prepared statements. Combine with smart drivers for topology-aware routing.
 - **DDL migrations:** Use a single database connection for migration tools (Flyway, Active Record). DDL propagation across distributed caches can cause constraint violations with concurrent connections.
 - **Extensions:** Pre-bundled — `pg_stat_statements` (enabled by default), `pgcrypto`, `pgvector`, `pg_cron`, `pg_partman`, `postgres_fdw`, `pgAudit`, `pg_trgm`, `pg_hint_plan`, `auto_explain`, `uuid-ossp`, `hstore`. Enable others with `CREATE EXTENSION <name>;`
+
+
+## YugabyteDB: timestamp-without-timezone vs NOW() is not seekable
+
+`NOW()` / `CURRENT_TIMESTAMP` return `timestamptz`. Comparing them to a `timestamp without time zone` column is a cross-type, timezone-dependent comparison. PostgreSQL turns it into a sargable index scan key; YugabyteDB does **not** push it to DocDB as a seek bound — it applies it as an *index recheck*. The scan therefore starts at the end of the index and discards every entry beyond the `now()` boundary one by one, which can be orders of magnitude slower. The plan still reports `Index Cond`, so the problem is easy to miss — the real tells are `Rows Removed by Index Recheck` and `Storage Index Rows Scanned` far larger than the `LIMIT`.
+
+It only bites when index entries exist on the far side of the boundary (future-dated rows with `< now()`, older rows with `> now()`, or the wrong end of an `ORDER BY ... LIMIT`); append-only historical data where everything is already `< now()` shows no difference. Pushdown behaviour varies by YugabyteDB version, so confirm against `SELECT version();`.
+
+### Fix
+- **No schema change:** cast the constant to the column's type — `WHERE created_at < now()::timestamp` (or `now() AT TIME ZONE '<zone>'` to keep the boundary correct).
+- **Preferred:** store the column as `TIMESTAMPTZ` so `< now()` is seekable directly:
+  `ALTER TABLE events ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';`
