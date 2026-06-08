@@ -450,13 +450,43 @@ For latitude/longitude search patterns, use SQL for broad pre-filtering/range sc
 - **Extensions:** Pre-bundled — `pg_stat_statements` (enabled by default), `pgcrypto`, `pgvector`, `pg_cron`, `pg_partman`, `postgres_fdw`, `pgAudit`, `pg_trgm`, `pg_hint_plan`, `auto_explain`, `uuid-ossp`, `hstore`. Enable others with `CREATE EXTENSION <name>;`
 
 
-## YugabyteDB: timestamp-without-timezone vs NOW() is not seekable
+## Query Optimization
 
-`NOW()` / `CURRENT_TIMESTAMP` return `timestamptz`. Comparing them to a `timestamp without time zone` column is a cross-type, timezone-dependent comparison. PostgreSQL turns it into a sargable index scan key; YugabyteDB does **not** push it to DocDB as a seek bound — it applies it as an *index recheck*. The scan therefore starts at the end of the index and discards every entry beyond the `now()` boundary one by one, which can be orders of magnitude slower. The plan still reports `Index Cond`, so the problem is easy to miss — the real tells are `Rows Removed by Index Recheck` and `Storage Index Rows Scanned` far larger than the `LIMIT`.
+### `timestamp` (without time zone) vs `now()`
 
-It only bites when index entries exist on the far side of the boundary (future-dated rows with `< now()`, older rows with `> now()`, or the wrong end of an `ORDER BY ... LIMIT`); append-only historical data where everything is already `< now()` shows no difference. Pushdown behaviour varies by YugabyteDB version, so confirm against `SELECT version();`.
+`now()` returns a `timestamptz`. When that value is compared against a `timestamp without time zone` column, the data type mismatch forces an implicit conversion that prevents the index condition from being pushed down to DocDB. The mismatch is especially costly when the predicate is combined with `ORDER BY`, `LIMIT`, or interval arithmetic such as `now() - interval`. Columns typed as `timestamptz` are not affected.
 
-### Fix
-- **No schema change:** cast the constant to the column's type — `WHERE created_at < now()::timestamp` (or `now() AT TIME ZONE '<zone>'` to keep the boundary correct).
-- **Preferred:** store the column as `TIMESTAMPTZ` so `< now()` is seekable directly:
-  `ALTER TABLE events ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';`
+**Symptom — index condition not pushed down:**
+
+```
+EXPLAIN (ANALYZE, DIST, DEBUG)
+SELECT ses.stream_id, ses.product_id
+FROM active_session AS ses
+WHERE ses.expiration_time > now() - make_interval(days => 10);
+-- Index Only Scan using active_session_user_exp_stream_idx on active_session ses
+-- Index Cond: (expiration_time > (now() - '10 days'::interval))
+-- Rows Removed by Index Recheck: 4991
+-- Storage Index Rows Scanned: 5000
+```
+
+Only 9 rows were needed, but 5000 index rows were scanned and 4991 were discarded by `Rows Removed by Index Recheck`. The `now() - interval` predicate is not pushed into DocDB, so the scan reads far more rows than the query returns.
+
+**Fix — cast `now()` to the column's type so the predicate is pushed down:**
+
+```
+EXPLAIN (ANALYZE, DIST)
+SELECT ses.stream_id, ses.product_id
+FROM active_session AS ses
+WHERE ses.expiration_time > now()::timestamp - make_interval(days => 10);
+-- Index Only Scan using active_session_user_exp_stream_idx on active_session ses
+-- Index Cond: (expiration_time > ((now())::timestamp without time zone - '10 days'::interval))
+-- Heap Fetches: 0
+-- Storage Index Read Requests: 1
+-- Storage Index Rows Scanned: 9
+```
+
+With `now()::timestamp`, the condition is pushed down: only 9 index rows are scanned to return 9 rows, in a single read request.
+
+**Two ways to fix:**
+- **Schema change (preferred):** define the column as `timestamptz` so it matches `now()` directly.
+- **No schema change:** cast the constant to the column's type in the predicate — `now()::timestamp`.
