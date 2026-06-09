@@ -44,6 +44,15 @@
       "skills": [
         "./skills/yba-api"
       ]
+    },
+    {
+      "name": "yb-rag-langchain",
+      "description": "Use this skill when building RAG, semantic search, or hybrid (vector + full-text) search on YugabyteDB with LangChain — including PGVectorStore setup, vector/GIN index creation, hybrid search configuration, metadata filtering, and relational + vector queries. Triggers on mentions of YugabyteDB + LangChain, PGVectorStore on YugabyteDB, pgvector + YSQL, or RAG pipelines using `langchain_postgres` against a YugabyteDB cluster.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yb-rag-langchain"
+      ]
     }
   ]
 }

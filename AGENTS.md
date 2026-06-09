@@ -33,6 +33,8 @@ skills/
       powershell-client.md    # Standalone PowerShell wrapper (no module install required)
       recipes.md              # Endpoint cheat-sheet: providers, releases, v1/v2 universe creation (cloud + k8s), storage configs (S3 multi-region + proxy), telemetry providers, health checks + alerts, runtime config (all scopes), backups, tasks
       prometheus.md           # Querying the Prometheus instance bundled with YBA on :9090 — useful PromQL for ops/sec, latency, container CPU/memory, node-exporter CPU, tablet leaders, xCluster lag, plus Python/PowerShell helpers
+  yb-rag-langchain/
+    SKILL.md                  # RAG / semantic search / hybrid search on YugabyteDB with LangChain (PGVectorStore, ybhnsw, hybrid search, metadata filtering)
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
 ```
@@ -68,4 +70,5 @@ npx skills add yugabyte/yugabytedb-skills -s ysql            # YSQL only
 npx skills add yugabyte/yugabytedb-skills -s ycql            # YCQL only
 npx skills add yugabyte/yugabytedb-skills -s yb-k8s-operator # Kubernetes Operator skill only
 npx skills add yugabyte/yugabytedb-skills -s yba-api         # YBA REST API skill only
+npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain # RAG / LangChain skill only
 ```
