@@ -24,7 +24,7 @@ Documentation: `https://docs.yugabyte.com/stable/yugabyte-platform/anywhere-auto
 
 - [ ] `kubectl config current-context` points to the cluster running the operator.
 - [ ] You are targeting the namespace from `yugaware.kubernetesOperatorNamespace` (empty string = all namespaces).
-- [ ] CRDs applied at the same version as the Helm chart (`helm ls -A | grep yugaware`).
+- [ ] CRDs applied at the **same version** as the Helm chart (`helm ls -A | grep yugaware`).
 - [ ] If RBAC is namespace-scoped (RoleBinding only, no ClusterRoleBinding), a YBProvider CR must be created explicitly — the operator cannot auto-discover node/zone topology.
 - [ ] For multi-cluster universes, kubeconfig secrets exist for each remote cluster.
 
@@ -59,13 +59,24 @@ All CRDs use `apiVersion: operator.yugabyte.io/v1alpha1`.
 
 ### Release
 
-Registers a YugabyteDB software version. Must reach `status.success: true` before a universe can reference it. Exactly one of `http`, `s3`, or `gcs` must be specified, and each must provide both `paths.helmChart` and `paths.x86_64`.
+Registers a YugabyteDB software version. Must reach `status.success: true` before a universe can reference it.
+
+The CRD validation (v2026.1+) requires exactly one `helmChart` path and exactly one `x86_64` path across the combination of `http`, `s3`, and `gcs` — they can come from different sources (e.g. `http` for the Helm chart and `s3` for the tarball). In pre-2026.1 CRDs, `x86_64` was optional.
+
+**Helm chart URL format:** The chart filename uses the 3-part chart version, not the full DB version string — `https://charts.yugabyte.com/yugabyte-<major>.<minor>.<patch>.tgz`. For example, DB version `2025.2.3.0-b149` uses chart version `2025.2.3`, so `helmChart: "https://charts.yugabyte.com/yugabyte-2025.2.3.tgz"`. Confirm chart existence with `helm search repo yugabytedb/yugabyte --versions` before authoring the CR.
+
+**`kubernetesOperatorNamespace: ""` bug:** When the operator watches all namespaces (empty string), `ReleaseReconciler.onAdd` throws `namespace not specified` when patching the CR status. The exception fires between YBA registration and the download trigger, so:
+- The release appears in YBA metadata but **packages are never downloaded** — the release shows as incomplete in YBA and cannot be used to upgrade a universe.
+- Subsequent reconcile loops log `no changes found` and do not retry the download.
+- Releases that **fail YBA registration** (bad URL, non-existent version) are re-processed via the update path, which does write status correctly.
+
+**Workaround:** Set `kubernetesOperatorNamespace` to the specific namespace where universes run instead of `""`. With a namespace set, the `onAdd` status patch succeeds and the download is triggered normally.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `spec.config.version` | string | yes | e.g. `"2024.2.1.0-b1"` |
-| `spec.config.downloadConfig.http.paths.helmChart` | string | yes (http) | URL to Helm chart `.tgz` |
-| `spec.config.downloadConfig.http.paths.x86_64` | string | yes (http) | URL to DB tarball |
+| `spec.config.version` | string | yes | e.g. `"2025.2.3.0-b149"` |
+| `spec.config.downloadConfig.http.paths.helmChart` | string | yes (v2026.1+) | URL to Helm chart `.tgz` — uses 3-part chart version, not full DB version |
+| `spec.config.downloadConfig.http.paths.x86_64` | string | yes (v2026.1+) | URL to DB tarball |
 | `spec.config.downloadConfig.s3.accessKeyId` | string | no | S3 access key |
 | `spec.config.downloadConfig.s3.secretAccessKeySecret` | object | no | `{name, namespace}` — preferred over inline secret |
 | `spec.config.downloadConfig.gcs.credentialsJsonSecret` | object | no | `{name, namespace}` — preferred over inline credentials |
@@ -168,14 +179,14 @@ Replaces `deviceInfo`/`masterDeviceInfo`; the two sets are mutually exclusive. `
 | `spec.masterDeviceInfo.numVolumes` | integer | **yes** | `1` |
 | `spec.masterDeviceInfo.storageClass` | string | **yes** | — |
 
-**Resource Spec (v2026.1+):** Simple CPU/memory sizing as an alternative to `kubernetesOverrides.resource`. Values are integers (cores / GiB, min 1 each).
+**Resource Spec (v2026.1+):** Simple CPU/memory sizing as an alternative to `kubernetesOverrides.resource`. Values are integers (cores / GiB, min 1 each). When `kubernetesOverrides.resource` is already set on an existing universe, adding these fields is accepted by Kubernetes but the operator reconciles as NO_OP — no YBA update is triggered and sizing does not change. These fields only take effect on universes created without `kubernetesOverrides.resource`.
 
 | Field | Notes |
 |-------|-------|
 | `spec.tserverResourceSpec.cpu` / `.memory` | CPU cores / GiB for tserver pods |
 | `spec.masterResourceSpec.cpu` / `.memory` | CPU cores / GiB for master pods |
 
-**YBC Throttle Parameters (v2026.1+):** Tune backup/restore throughput when backups consume too many resources.
+**YBC Throttle Parameters (v2026.1+):** Tune backup/restore throughput when backups consume too many resources. `maxConcurrentUploads` and `maxConcurrentDownloads` have a hard maximum of **3** — values above this cause `Error Updating` at reconcile time (the admission webhook does not validate them).
 
 | Field | Notes |
 |-------|-------|
@@ -237,9 +248,9 @@ Defines a backup storage destination. Referenced by Backup, BackupSchedule, and 
 | `spec.data.AWS_HOST_BASE` | string | no | no | S3-compatible endpoint |
 | `spec.data.PATH_STYLE_ACCESS` | bool | no | no | S3-compatible path-style |
 | `spec.data.SIGNING_REGION` | string | no | no | For private S3 endpoints |
-| `spec.awsSecretAccessKeySecret` | object | no | no | `{name, namespace}` — preferred over `data.AWS_SECRET_ACCESS_KEY`. Secret key: `awsSecretAccessKey` |
-| `spec.gcsCredentialsJsonSecret` | object | no | no | `{name, namespace}` — preferred over `data.GCS_CREDENTIALS_JSON`. Secret key: `gcsCredentialsJson` |
-| `spec.azureStorageSasTokenSecret` | object | no | no | `{name, namespace}` — preferred over `data.AZURE_STORAGE_SAS_TOKEN`. Secret key: `azureStorageSasToken` |
+| `spec.awsSecretAccessKeySecret` | object | no | no | `{name, namespace}` — preferred over `data.AWS_SECRET_ACCESS_KEY`. Secret key: `awsSecretAccessKey`. **Secret must exist before applying the CR** — if absent, the CR is created with empty `resourceUUID` and all subsequent updates fail with "Invalid UUID string" until the CR is deleted and recreated. |
+| `spec.gcsCredentialsJsonSecret` | object | no | no | `{name, namespace}` — preferred over `data.GCS_CREDENTIALS_JSON`. Secret key: `gcsCredentialsJson`. Same pre-existence requirement. |
+| `spec.azureStorageSasTokenSecret` | object | no | no | `{name, namespace}` — preferred over `data.AZURE_STORAGE_SAS_TOKEN`. Secret key: `azureStorageSasToken`. Same pre-existence requirement. |
 
 ### Backup
 
@@ -284,6 +295,8 @@ Auto-deletes when owning universe is deleted.
 | `spec.keyspace` | string | no | Keyspace override |
 
 ### PitrConfig
+
+**`kubernetesOperatorNamespace: ""` bug:** `PitrConfigReconciler` passes an empty namespace when looking up the referenced YBUniverse, causing a permanent `Unable to fetch YBUniverse` loop. PitrConfig will never be created when the operator watches all namespaces. Set `kubernetesOperatorNamespace` to a specific namespace to work around this.
 
 | Field | Type | Required | Immutable | Default | Notes |
 |-------|------|----------|-----------|---------|-------|
@@ -372,6 +385,9 @@ Attempting to change an immutable field is rejected by the admission webhook —
 | Putting credentials inline in StorageConfig `spec.data` | Secrets visible in CR YAML | Use `awsSecretAccessKeySecret` / `gcsCredentialsJsonSecret` / `azureStorageSasTokenSecret` |
 | Deleting an incremental backup individually | Breaks the backup chain | Delete the base full backup (cascades to all incrementals) |
 | Mixing `tserverVolume` and `deviceInfo` (or `masterVolume` and `masterDeviceInfo`) | Rejected by validation | Use one set; they are mutually exclusive |
+| `ybcThrottleParameters.maxConcurrentUploads` or `maxConcurrentDownloads` > 3 | `Error Updating` at reconcile time — admission webhook does not validate this | Keep both values ≤ 3 |
+| Applying `awsSecretAccessKeySecret` / `gcsCredentialsJsonSecret` / `azureStorageSasTokenSecret` before the referenced secret exists | StorageConfig CR created with empty `resourceUUID`; all subsequent updates fail with "Invalid UUID string" until CR is deleted and recreated | Create the secret first, then apply the StorageConfig CR |
+| `kubernetesOperatorNamespace: ""` with Release or PitrConfig CRs | Release: packages never downloaded (namespace error interrupts `onAdd` between YBA registration and download trigger); PitrConfig: universe lookup fails permanently — config never created | Set `kubernetesOperatorNamespace` to the specific namespace where universes run |
 | Changing DrConfig source/target in an unsupported pattern (v2026.1+) | Rejected by validation | Only switchover (swap), failover (target → `""`), or restart (source unchanged, new target) |
 | PitrRestore `restoreTime` outside the retention window | Task fails | Verify the timestamp is within the PitrConfig retention period |
 | Using short-lived tokens in kubeconfig secrets | Token expires silently | Use long-lived service account tokens (`kubernetes.io/service-account-token` Secret) |
