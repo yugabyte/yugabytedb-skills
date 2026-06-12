@@ -339,6 +339,8 @@ Pre-2026.1: both fields were fully immutable.
 
 ### SupportBundle
 
+**Plural resource name is `support-bundles`** (hyphenated) — `kubectl get support-bundles -A`, not `kubectl get supportbundle`.
+
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `spec.universeName` | string | yes | YBUniverse CR name |
