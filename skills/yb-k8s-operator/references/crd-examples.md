@@ -269,7 +269,36 @@ spec:
 
 ## YBUniverse
 
-### Minimal universe (3-node, RF=3)
+### Minimal universe (3-node, RF=3) — v2026.1+ with new volume fields
+
+```yaml
+apiVersion: operator.yugabyte.io/v1alpha1
+kind: YBUniverse
+metadata:
+  name: demo-universe
+spec:
+  numNodes: 3
+  replicationFactor: 3
+  enableYSQL: true
+  enableNodeToNodeEncrypt: true
+  enableClientToNodeEncrypt: true
+  ybSoftwareVersion: "2026.1.0.0-b1"
+  tserverVolume:
+    volumeSize: 100
+    numVolumes: 2
+    storageClass: "yb-standard"
+  masterVolume:
+    volumeSize: 50
+    storageClass: "yb-standard"
+  tserverResourceSpec:
+    cpu: 4
+    memory: 8
+  masterResourceSpec:
+    cpu: 2
+    memory: 4
+```
+
+### Minimal universe (3-node, RF=3) — pre-v2026.1 with legacy volume fields
 
 ```yaml
 apiVersion: operator.yugabyte.io/v1alpha1
@@ -354,6 +383,49 @@ spec:
         limits:
           cpu: 8
           memory: 16Gi
+```
+
+### Production universe with tserverVolume and per-AZ overrides (v2026.1+)
+
+```yaml
+apiVersion: operator.yugabyte.io/v1alpha1
+kind: YBUniverse
+metadata:
+  name: prod-universe
+spec:
+  universeName: production-db
+  providerName: gke-provider
+  numNodes: 6
+  replicationFactor: 3
+  enableYSQL: true
+  enableNodeToNodeEncrypt: true
+  enableClientToNodeEncrypt: true
+  enableYSQLAuth: true
+  ysqlPassword:
+    secretName: ysql-credentials
+  ybSoftwareVersion: "2026.1.0.0-b1"
+  tserverVolume:
+    volumeSize: 500
+    numVolumes: 2
+    storageClass: "yb-standard"
+    perAZ:
+      us-west1-a:
+        volumeSize: 1000    # larger SSDs for the primary AZ
+  masterVolume:
+    volumeSize: 100
+    storageClass: "yb-standard"
+  tserverResourceSpec:
+    cpu: 8
+    memory: 16
+  masterResourceSpec:
+    cpu: 4
+    memory: 8
+  ybcThrottleParameters:
+    maxConcurrentUploads: 4
+    diskReadBytesPerSec: 536870912   # 512 MiB/s
+  gFlags:
+    tserverGFlags:
+      ysql_enable_packed_row: "true"
 ```
 
 ### Universe with YCQL enabled and authentication
@@ -671,6 +743,23 @@ spec:
 
 ---
 
+## PitrRestore (v2026.1+)
+
+Restores a database to a specific point in time. All fields are immutable — create a new CR to restore to a different time.
+
+```yaml
+apiVersion: operator.yugabyte.io/v1alpha1
+kind: PitrRestore
+metadata:
+  name: restore-yugabyte-20240209
+spec:
+  universe: prod-universe
+  pitrConfig: yugabyte-pitr
+  restoreTime: "2024-02-09T15:30:00Z"  # must be within the PitrConfig retention window
+```
+
+---
+
 ## DrConfig
 
 ```yaml
@@ -686,6 +775,27 @@ spec:
     - yugabyte
     - app_data
   storageConfig: s3-backup-config
+  paused: false  # set to true to pause replication (v2026.1+)
+```
+
+### DR Switchover (v2026.1+)
+
+Swap source and target to make west the new primary:
+
+```yaml
+spec:
+  sourceUniverse: prod-universe-west  # was targetUniverse
+  targetUniverse: prod-universe-east  # was sourceUniverse
+```
+
+### DR Failover (v2026.1+)
+
+Promote the target after the source becomes unreachable:
+
+```yaml
+spec:
+  sourceUniverse: prod-universe-west  # old targetUniverse
+  targetUniverse: ""                  # empty string triggers failover
 ```
 
 ---
