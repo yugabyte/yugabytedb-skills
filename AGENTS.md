@@ -35,6 +35,13 @@ skills/
       prometheus.md           # Querying the Prometheus instance bundled with YBA on :9090 — useful PromQL for ops/sec, latency, container CPU/memory, node-exporter CPU, tablet leaders, xCluster lag, plus Python/PowerShell helpers
   yb-rag-langchain/
     SKILL.md                  # RAG / semantic search / hybrid search on YugabyteDB with LangChain (PGVectorStore, ybhnsw, hybrid search, metadata filtering)
+  yba-terraform/
+    SKILL.md                  # YBA Terraform provider (yugabyte/yba): two-stage workflow, provider config, prereqs, anti-patterns
+    references/
+      prereqs-and-network.md   # YBA host/DB-node requirements + ports, and aws/gcloud/az CLI commands to discover VPC/subnet/SG/region info
+      cloud-iam-setup.md       # Upstream aws/google/azurerm Terraform creating YBA's IAM user / service account / service principal with the docs' delegated permissions
+      install-bootstrap.md     # Stage 1: yba_installer (install over SSH) + yba_customer_resource (first customer, outputs api_token)
+      providers-universe.md    # Stage 2: yba_aws/gcp/azure/onprem_provider, *_storage_config, yba_universe, yba_backup/backup_schedule/restore
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
 ```
@@ -71,4 +78,5 @@ npx skills add yugabyte/yugabytedb-skills -s ycql            # YCQL only
 npx skills add yugabyte/yugabytedb-skills -s yb-k8s-operator # Kubernetes Operator skill only
 npx skills add yugabyte/yugabytedb-skills -s yba-api         # YBA REST API skill only
 npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain # RAG / LangChain skill only
+npx skills add yugabyte/yugabytedb-skills -s yba-terraform   # YBA Terraform provider skill only
 ```

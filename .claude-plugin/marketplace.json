@@ -46,6 +46,15 @@
       ]
     },
     {
+      "name": "yba-terraform",
+      "description": "Use when writing or generating Terraform for the yugabyte/yba provider — installing YugabyteDB Anywhere (YBA) on a VM, registering the first customer, and creating AWS/GCP/Azure or on-prem cloud providers, storage configs, universes, backups, schedules, and restores. Also covers the upstream cloud IAM (IAM user / service account / service principal) that grants YBA node-deployment permissions and the CLI commands to discover VPC/subnet/security-group network info. Triggers on yba_installer, yba_customer_resource, yba_aws_provider/yba_gcp_provider/yba_azure_provider, yba_universe, yba_backup, source = \"yugabyte/yba\", or any mention of the YBA Terraform provider. Does NOT cover the YBA REST API directly (use yba-api) or YugabyteDB Aeon.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yba-terraform"
+      ]
+    },
+    {
       "name": "yb-rag-langchain",
       "description": "Use this skill when building RAG, semantic search, or hybrid (vector + full-text) search on YugabyteDB with LangChain — including PGVectorStore setup, vector/GIN index creation, hybrid search configuration, metadata filtering, and relational + vector queries. Triggers on mentions of YugabyteDB + LangChain, PGVectorStore on YugabyteDB, pgvector + YSQL, or RAG pipelines using `langchain_postgres` against a YugabyteDB cluster.",
       "source": "./",
