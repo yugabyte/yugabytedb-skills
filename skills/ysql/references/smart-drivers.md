@@ -14,7 +14,7 @@ YugabyteDB publishes 9 smart drivers for YSQL. Each extends the upstream Postgre
 | Rust | rust-postgres | `yb-postgres` (crate) | `load_balance=true` |
 | Ruby | ruby-pg | `yugabytedb-ysql` (gem) | `load_balance=true` |
 
-**Versions are deliberately not pinned here.** Use the latest release carrying the `-yb-` suffix and resolve it from the package registry (PyPI, Maven Central, crates.io, npm, NuGet, RubyGems) at generation time — never write a version from memory.
+**Versions are deliberately not pinned here.** Resolve the latest release of the named package from its registry at generation time (PyPI, Maven Central, the Go module proxy, npm, NuGet, crates.io, RubyGems) — never write a version from memory. The YugabyteDB drivers are separate packages, so do not filter by version format: PyPI, NuGet and RubyGems publish plain version numbers, while Maven, npm, Go and crates.io use the upstream version plus a `-yb-N` qualifier.
 
 **Python: match the driver the codebase already uses.** If the project imports `psycopg` (psycopg3), use `psycopg-yugabytedb`. If it imports `psycopg2`, use `psycopg2-yugabytedb`. Do not default to psycopg2 for new code — psycopg3 is the current driver.
 
