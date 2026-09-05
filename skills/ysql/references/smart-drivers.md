@@ -14,6 +14,8 @@ YugabyteDB publishes 9 smart drivers for YSQL. Each extends the upstream Postgre
 | Rust | rust-postgres | `yb-postgres` (crate) | `load_balance=true` |
 | Ruby | ruby-pg | `yugabytedb-ysql` (gem) | `load_balance=true` |
 
+**Versions are deliberately not pinned here.** Use the latest release carrying the `-yb-` suffix and resolve it from the package registry (PyPI, Maven Central, crates.io, npm, NuGet, RubyGems) at generation time — never write a version from memory.
+
 **Python: match the driver the codebase already uses.** If the project imports `psycopg` (psycopg3), use `psycopg-yugabytedb`. If it imports `psycopg2`, use `psycopg2-yugabytedb`. Do not default to psycopg2 for new code — psycopg3 is the current driver.
 
 ## Python (psycopg3) — `pip install psycopg-yugabytedb`
@@ -54,7 +56,7 @@ String url = "jdbc:yugabytedb://host1:5433,host2:5433,host3:5433/yugabyte"
     + "&yb-servers-refresh-interval=300&failed-host-reconnect-delay-secs=5";
 ```
 
-## Java (R2DBC) — `com.yugabyte:r2dbc-postgresql:1.1.0-yb-2`
+## Java (R2DBC) — Maven `com.yugabyte:r2dbc-postgresql`
 ```java
 PostgresqlConnectionFactory connectionFactory = new PostgresqlConnectionFactory(
     PostgresqlConnectionConfiguration.builder()
@@ -93,7 +95,7 @@ var connString = "Host=yb-tserver-0,yb-tserver-1,yb-tserver-2;Port=5433;Database
 var conn = new NpgsqlConnection(connString);
 ```
 
-## Rust — `yb-postgres = "0.19.7-yb-1-beta.3"` in `Cargo.toml`
+## Rust — crate `yb-postgres` in `Cargo.toml`
 ```rust
 use yb_postgres::{Client, NoTls};
 

@@ -68,6 +68,7 @@ The `name` and `description` fields in frontmatter must stay in sync with the co
 - When adding a new skill, also register it in `.claude-plugin/marketplace.json` under the `plugins` array.
 - Skills should include: anti-patterns with alternatives, schema/design patterns with SQL/code examples, and operational guidance.
 - Keep skills self-contained — each skill folder should be independently useful without requiring the other.
+- Do not pin dependency or driver versions in skills (`pip install x==1.2.3`, `<version>1.2.3</version>`, `crate = "1.2.3"`) — they go stale. Name the package or coordinate and tell the agent to resolve the latest release from the registry at generation time (for YugabyteDB drivers, the latest release with the `-yb-` suffix). YugabyteDB product release numbers inside example payloads (for example `ybSoftwareVersion: "2024.2.1.0-b1"`) are fine as illustrations.
 
 ## Installation Commands (for reference)
 
