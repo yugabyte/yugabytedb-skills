@@ -73,6 +73,55 @@ The `name` and `description` fields in frontmatter must stay in sync with the co
 - When adding a new skill, also register it in `.claude-plugin/marketplace.json` under the `plugins` array.
 - Skills should include: anti-patterns with alternatives, schema/design patterns with SQL/code examples, and operational guidance.
 - Keep skills self-contained — each skill folder should be independently useful without requiring the other.
+- Before writing or changing skill content, read [Writing effective skills](#writing-effective-skills) below.
+
+## Writing effective skills
+
+The [static checks](#static-checks) catch structural problems. The rules here cover what a checker cannot: whether the skill changes what the agent produces. They condense Anthropic's skill-authoring guide, the Agent Skills specification and the `skill-creator` skill (links at the end of this section), plus the conventions of this repository.
+
+### Start from a failure, not from a topic
+
+1. Run a representative task (design a schema, wire a driver, plan a deployment) with a capable model and **no** skill loaded. Record what it gets wrong or leaves out.
+2. Write only the content that fixes those failures. The model already knows PostgreSQL, Cassandra, Kubernetes, Terraform and the language ecosystems — document what is specific to YugabyteDB.
+3. Re-run the same task with the skill loaded and compare. Keep the task prompts: they are the skill's regression tests. Repeat with every model the skill is expected to serve — guidance that is enough for a large model can be too thin for a small one.
+
+### Description — the only text the agent sees before choosing a skill
+
+- Say what the skill does **and** when to use it, in the third person. Pattern used here: `<what it covers>. Use when <situations>. Triggers on <words the user is likely to type>.`
+- List concrete triggers: product names, commands, file types, error codes, ports (`5433`, `9042`), API and resource names. The agent matches the request against every installed skill's description; a vague description means the skill is never loaded. Under-triggering is the common failure — list more triggers rather than fewer.
+- Describe the user's situation, not the skill's structure or history.
+- Keep the existing noun-phrase names (`ysql`, `yb-k8s-operator`, `yba-api`); consistency across the collection matters more than the form.
+- `.claude-plugin/marketplace.json` must carry the identical description (`python3 scripts/check_skills.py --fix-descriptions`).
+
+### Body — a table of contents, not a manual
+
+- `SKILL.md` is loaded whole once the skill triggers, so every line competes with the user's task. The checker warns at 400 lines and fails at 500; most skills should be shorter.
+- Lead with the decisions that differ from the upstream technology (YSQL: sharding, smart drivers, retries; the operator: CRD shapes, multi-cluster networking). No introductions, no definitions the model already has.
+- Move long code, per-language variants and endpoint catalogues into `references/<topic>.md`, linked directly from `SKILL.md`. One level deep only — a reference file must not point to another reference file. Put a contents list at the top of any reference longer than about 100 lines so a partial read still shows its scope.
+- Split references by domain (`smart-drivers.md`, `retry-patterns.md`), not by size, so the agent loads only the file the task needs.
+
+### Instructions the agent can act on
+
+- Imperative sentences. One term per concept throughout (`tserver`, not `tserver` / `node` / `server` interchangeably).
+- Give the reason in one clause instead of capitalised ALWAYS / NEVER; the reason lets the agent handle the case the rule did not foresee.
+- Match specificity to risk. Fragile or irreversible steps (DDL migrations, upgrades, IAM setup) get one exact command and "do not add flags". Design choices get one default plus the condition for the alternative. Do not list five valid libraries — name one and say when to use another.
+- Show input → output examples where style matters (schema shapes, connection strings, report layouts). One concrete example beats a paragraph of description.
+- For multi-step procedures, give a numbered checklist the agent can copy and tick off, and end it with a verification step (`EXPLAIN (ANALYZE, DIST)`, `kubectl get …`, `terraform plan`) so mistakes surface before the user sees them.
+- Keep the anti-patterns table — `what people do | why it breaks on YugabyteDB | do this instead`. It is the highest-value section in most skills here.
+
+### Content that goes stale
+
+- No pinned dependency versions. Name the coordinate (`psycopg-yugabytedb`, `com.yugabyte:r2dbc-postgresql`) and tell the agent to resolve the latest `-yb-` release from the registry. YugabyteDB release numbers in example payloads are fine.
+- No dates or "before / after version X" branches in the main text. Superseded guidance goes into a collapsed "Old patterns" block or is deleted.
+- Anything the agent must look up live (technical advisories, release notes, docs pages) gets the URL and an instruction to fetch it — never a memorised copy.
+
+### Before opening the PR
+
+1. `python3 scripts/check_skills.py --strict` passes.
+2. The description has been tested: a fresh session picks this skill for the target request and ignores it for a neighbouring one (YSQL vs YCQL, YBA API vs Terraform).
+3. The regression task from "Start from a failure" produces better output with the skill than without, and the PR says how it was checked.
+
+Sources: [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) (Anthropic), [Agent Skills specification](https://agentskills.io/specification), [skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator) (anthropics/skills).
 
 ## Installation Commands (for reference)
 
