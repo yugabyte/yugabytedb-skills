@@ -47,6 +47,7 @@ skills/
 .skills-lint.json             # Known exceptions for the static checks (each needs a reason)
 scripts/
   check_skills.py             # Static checks for skills (frontmatter, manifest/README sync, size, links, version pins)
+  test_check_skills.py        # Tests for the checker (unittest, standard library only)
 .github/workflows/
   skills-lint.yml             # Runs scripts/check_skills.py on every pull request and on main
 ```
@@ -137,12 +138,13 @@ npx skills add yugabyte/yugabytedb-skills -s yba-terraform   # YBA Terraform pro
 
 ## Static checks
 
-`scripts/check_skills.py` (standard library only) validates every skill and runs in CI on every pull request (`.github/workflows/skills-lint.yml`). Run it locally from the repo root before opening a PR:
+`scripts/check_skills.py` (standard library only) validates every skill and runs in CI on every pull request (`.github/workflows/skills-lint.yml`), together with its tests in `scripts/test_check_skills.py`. Run both locally from the repo root before opening a PR:
 
 ```bash
 python3 scripts/check_skills.py                     # report; exit 1 on errors
 python3 scripts/check_skills.py --strict            # warnings fail too
 python3 scripts/check_skills.py --fix-descriptions  # sync marketplace.json descriptions from SKILL.md
+python3 -m unittest discover -s scripts -p 'test_*.py'   # the checker's own tests (run after changing it)
 ```
 
 What it enforces (errors fail CI, warnings annotate the PR):
