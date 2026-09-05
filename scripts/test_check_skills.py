@@ -253,6 +253,23 @@ Done.
         self.assertEqual(self.rules(checker), [])
         self.assertTrue(any(f.rule == "MP004" and f.ignored == "test baseline" for f in checker.findings))
 
+    def with_description(self, description_yaml: str) -> str:
+        body = self.SKILL.split("---\n", 2)[2]
+        return f'---\nname: "demo-skill"\ndescription: {description_yaml}\n---\n' + body
+
+    def test_invalid_escape_in_description_is_an_error_and_blocks_the_fixer(self):
+        self.skill.write_text(self.with_description(
+            '"Demo skill with a bad \\q escape. Use when verifying that invalid YAML is rejected."'))
+        self.write_manifest("stale")
+        self.assertEqual(self.rules(self.check(), "ERROR"), ["FM007"])
+        self.assertEqual(Checker(self.root).fix_descriptions(), 0)
+        self.assertEqual(self.manifest_description(), "stale")
+
+    def test_unquoted_colon_space_in_description_is_an_error(self):
+        self.skill.write_text(self.with_description(
+            "Demo skill for SQL: review. Use when verifying that unquoted mapping syntax is rejected."))
+        self.assertEqual(self.rules(self.check(), "ERROR"), ["FM007"])
+
     def test_cli_exit_codes_and_github_format(self):
         script = Path(check_skills.__file__)
         ok = subprocess.run([sys.executable, str(script), "--root", str(self.root)],
@@ -264,6 +281,81 @@ Done.
                              capture_output=True, text=True)
         self.assertEqual(bad.returncode, 1)
         self.assertIn("::error file=.claude-plugin/marketplace.json,title=MP004::", bad.stdout)
+
+
+class StrictYamlTests(unittest.TestCase):
+    """Input that PyYAML rejects must not reach the manifest."""
+
+    def fm(self, text: str):
+        return Checker.frontmatter(text)
+
+    def test_unknown_escape_is_rejected(self):
+        fields, _, problems = self.fm('---\ndescription: "bad \\q escape"\n---\n')
+        self.assertTrue(any(r == "FM007" and "invalid escape" in msg for r, _, msg in problems), problems)
+        self.assertIsNone(fields["description"])
+
+    def test_hex_and_unicode_escapes_are_decoded(self):
+        fields, _, problems = self.fm('---\ndescription: "\\x41\\u00e9\\U0001F600 \\\\ \\" \\t"\n---\n')
+        self.assertEqual(problems, [])
+        self.assertEqual(fields["description"], 'A\u00e9\U0001F600 \\ " \t')
+
+    def test_short_hex_escape_is_rejected(self):
+        _, _, problems = self.fm('---\ndescription: "\\x4"\n---\n')
+        self.assertTrue(any("invalid escape" in msg for _, _, msg in problems), problems)
+
+    def test_plain_scalar_with_colon_space_is_rejected(self):
+        _, _, problems = self.fm("---\ndescription: Use for SQL: review and more\n---\n")
+        self.assertTrue(any(r == "FM007" and "': '" in msg for r, _, msg in problems), problems)
+
+    def test_plain_scalar_ending_with_colon_is_rejected(self):
+        _, _, problems = self.fm("---\ndescription: Use for SQL review:\n---\n")
+        self.assertTrue(any(r == "FM007" for r, _, _ in problems), problems)
+
+    def test_plain_scalar_starting_with_sequence_indicator_is_rejected(self):
+        _, _, problems = self.fm("---\ndescription: - not a scalar\n---\n")
+        self.assertTrue(any(r == "FM007" for r, _, _ in problems), problems)
+
+    def test_colon_without_a_following_space_is_fine(self):
+        fields, _, problems = self.fm("---\ndescription: Connect to host:5433 for YSQL\n---\n")
+        self.assertEqual(problems, [])
+        self.assertEqual(fields["description"], "Connect to host:5433 for YSQL")
+
+
+class FenceIndentationTests(unittest.TestCase):
+    """Indented code is not a fence; fences inside list items are."""
+
+    def fmap(self, text: str):
+        return Checker.fence_map(text.split("\n"))
+
+    def test_four_space_indented_backticks_are_indented_code(self):
+        inside, unclosed = self.fmap("Example:\n\n    ```\n    code\n\nAfter.")
+        self.assertIsNone(unclosed)
+        self.assertEqual(inside, [False] * 6)
+
+    def test_three_space_indented_fence_is_a_fence(self):
+        inside, unclosed = self.fmap("   ```\ncode\n   ```\ntext")
+        self.assertIsNone(unclosed)
+        self.assertEqual(inside, [True, True, True, False])
+
+    def test_fence_inside_a_list_item(self):
+        inside, unclosed = self.fmap("- item\n\n  ```bash\n  run\n  ```\n- next")
+        self.assertIsNone(unclosed)
+        self.assertEqual(inside, [False, False, True, True, True, False])
+
+    def test_fence_inside_a_nested_list_item_indented_four_spaces(self):
+        inside, unclosed = self.fmap("- a\n  - b\n\n    ```\n    code\n    ```\nend")
+        self.assertIsNone(unclosed)
+        self.assertEqual(inside, [False, False, False, True, True, True, False])
+
+    def test_four_space_indented_backticks_inside_a_fence_do_not_close_it(self):
+        inside, unclosed = self.fmap("```\n    ```\ncode\n```\ntext")
+        self.assertIsNone(unclosed)
+        self.assertEqual(inside, [True, True, True, True, False])
+
+    def test_tab_indented_backticks_are_not_a_fence(self):
+        inside, unclosed = self.fmap("text\n\n\t```\n\tcode\n")
+        self.assertIsNone(unclosed)
+        self.assertFalse(any(inside))
 
 
 if __name__ == "__main__":

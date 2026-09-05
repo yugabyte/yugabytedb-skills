@@ -47,7 +47,10 @@ DOUBLE_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '
                   "a": "\a", "b": "\b", "e": "\x1b", "f": "\f", "v": "\v", "_": " ",
                   "N": "", "L": " ", "P": " "}
 # CommonMark fenced code: a run of 3+ backticks or tildes, then an optional info string.
-FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
+# Indentation is checked separately (at most 3 spaces relative to the enclosing list item).
+FENCE_OPEN = re.compile(r"^ *(`{3,}|~{3,})(.*)$")
+# List item marker with its content indent: leading spaces, marker, spaces before the content.
+LIST_ITEM = re.compile(r"^( *)([-*+]|\d{1,9}[.)])( +)(?=\S)")
 REF_LINK = re.compile(r"\]\((references/[^)#\s]+)")
 PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\bTBD\b|\bFIXME\b|\bTODO\b|lorem ipsum", re.I)
 USAGE_HINT = re.compile(r"\buse (when|this skill|for)\b|\btriggers?\b|\bwhen\b", re.I)
@@ -175,13 +178,15 @@ class Checker:
             return Checker._block_scalar(lines, i, m.group(1), m.group(2))
         if rest[0] in "'\"":
             return Checker._quoted_scalar(lines, i, rest)
-        if rest[0] in UNSUPPORTED_SCALAR_START:
+        if rest[0] in UNSUPPORTED_SCALAR_START or rest[:2] in ("- ", "? ", ": ") or rest in ("-", "?", ":"):
             return None, i + 1, f"unsupported YAML syntax: {rest[:40]}"
         value = Checker._strip_comment(rest)
         j = i + 1
         while j < len(lines) and lines[j].strip() and lines[j][0] in " \t" and not lines[j].strip().startswith("#"):
             value += " " + Checker._strip_comment(lines[j].strip())
             j += 1
+        if ": " in value or value.endswith(":"):
+            return None, j, "plain scalar contains ': ' (YAML reads it as a nested mapping); quote the value"
         return value, j, None
 
     @staticmethod
@@ -206,8 +211,8 @@ class Checker:
         body = buf[1:end]
         if q == "'":
             return body.replace("''", "'"), j + 1, None
-        return re.sub(r"\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)",
-                      Checker._double_escape, body), j + 1, None
+        value, err = Checker._decode_double_quoted(body)
+        return value, j + 1, err
 
     @staticmethod
     def _closing_quote(buf: str, q: str) -> int | None:
@@ -229,11 +234,30 @@ class Checker:
         return None
 
     @staticmethod
-    def _double_escape(m: re.Match) -> str:
-        esc = m.group(1)
-        if esc[0] in "xuU" and len(esc) > 1:
-            return chr(int(esc[1:], 16))
-        return DOUBLE_ESCAPES.get(esc, esc)
+    def _decode_double_quoted(body: str) -> tuple[str | None, str | None]:
+        """Decode YAML double-quoted escapes; an escape YAML does not define is an error."""
+        out: list[str] = []
+        k = 0
+        while k < len(body):
+            c = body[k]
+            if c != "\\":
+                out.append(c)
+                k += 1
+                continue
+            esc = body[k + 1:k + 2]
+            width = {"x": 2, "u": 4, "U": 8}.get(esc)
+            if width:
+                digits = body[k + 2:k + 2 + width]
+                if len(digits) != width or any(d not in "0123456789abcdefABCDEF" for d in digits):
+                    return None, f"invalid escape \\{esc}{digits} in double-quoted string"
+                out.append(chr(int(digits, 16)))
+                k += 2 + width
+            elif esc in DOUBLE_ESCAPES or esc == "\t":
+                out.append(DOUBLE_ESCAPES.get(esc, esc))
+                k += 2
+            else:
+                return None, f"invalid escape \\{esc} in double-quoted string (YAML does not define it)"
+        return "".join(out), None
 
     @staticmethod
     def _block_scalar(lines: list[str], i: int, style: str, indicators: str) -> tuple[str | None, int, str | None]:
@@ -287,23 +311,39 @@ class Checker:
     def fence_map(lines: list[str]) -> tuple[list[bool], int | None]:
         """Return (inside flag per line, line number of an unclosed opening fence or None).
 
-        Delimiter lines count as inside. A fence closes only on a line with the same
-        character (backtick or tilde), at least the opening length and nothing else,
-        so a four-backtick block may contain three-backtick examples.
+        CommonMark rules that matter for skill files: a fence may be indented at most
+        3 spaces relative to the enclosing list item (4 or more is indented code, not a
+        fence; a tab counts as 4); it closes only on a line with the same character
+        (backtick or tilde), at least the opening length and nothing else; a backtick
+        fence's info string may not contain backticks. Delimiter lines count as inside.
         """
         inside = [False] * len(lines)
         open_char, open_len, open_line = "", 0, None
+        items: list[int] = []  # content indent of the open list items, innermost last
         for idx, line in enumerate(lines):
-            m = FENCE_OPEN.match(line)
-            if open_line is None:
-                # the info string of a backtick fence may not contain backticks
-                if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
-                    open_char, open_len, open_line = m.group(1)[0], len(m.group(1)), idx + 1
-                    inside[idx] = True
+            expanded = line.expandtabs(4)
+            indent = len(expanded) - len(expanded.lstrip(" "))
+            if open_line is not None:
+                inside[idx] = True
+                m = FENCE_OPEN.match(expanded)
+                if (m and indent - (items[-1] if items else 0) <= 3 and m.group(1)[0] == open_char
+                        and len(m.group(1)) >= open_len and not m.group(2).strip()):
+                    open_line = None
                 continue
-            inside[idx] = True
-            if m and m.group(1)[0] == open_char and len(m.group(1)) >= open_len and not m.group(2).strip():
-                open_line = None
+            if not expanded.strip():
+                continue
+            while items and indent < items[-1]:
+                items.pop()
+            base = items[-1] if items else 0
+            m = FENCE_OPEN.match(expanded)
+            if m and indent - base <= 3 and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                open_char, open_len, open_line = m.group(1)[0], len(m.group(1)), idx + 1
+                inside[idx] = True
+                continue
+            li = LIST_ITEM.match(expanded[base:]) if indent - base <= 3 else None
+            if li:
+                gap = len(li.group(3))
+                items.append(base + len(li.group(1)) + len(li.group(2)) + (1 if gap >= 5 else gap))
         return inside, open_line
 
     @staticmethod

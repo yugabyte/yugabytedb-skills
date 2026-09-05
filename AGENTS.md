@@ -112,7 +112,7 @@ The [static checks](#static-checks) catch structural problems. The rules here co
 
 ### Content that goes stale
 
-- No pinned dependency versions. Name the coordinate (`psycopg-yugabytedb`, `com.yugabyte:r2dbc-postgresql`) and tell the agent to resolve the latest `-yb-` release from the registry. YugabyteDB release numbers in example payloads are fine.
+- No pinned dependency versions. Name the package or coordinate (`psycopg-yugabytedb`, `com.yugabyte:r2dbc-postgresql`) and tell the agent to resolve that package's latest release from its registry at generation time. Do not describe the version format: the YugabyteDB drivers are separate packages, and registries differ — PyPI, NuGet and RubyGems publish plain version numbers, while Maven, npm, Go and crates.io use the upstream version plus a `-yb-N` qualifier — so a rule that filters on a suffix rejects valid releases. YugabyteDB release numbers in example payloads are fine.
 - No dates or "before / after version X" branches in the main text. Superseded guidance goes into a collapsed "Old patterns" block or is deleted.
 - Anything the agent must look up live (technical advisories, release notes, docs pages) gets the URL and an instruction to fetch it — never a memorised copy.
 
@@ -156,7 +156,7 @@ What it enforces (errors fail CI, warnings annotate the PR):
 | README | every registered skill has an Available Skills row (error) and an `npx skills add … -s <name>` line (warn) |
 | Size | `SKILL.md` over 500 lines is an error; over 400 lines or 4000 words is a warning; a reference file over 600 lines is a warning |
 | References | every `references/…` link resolves (error); every reference file is linked or mentioned from `SKILL.md` (warn) |
-| Markdown | unclosed code fence (error; CommonMark matching — a closing fence uses the same character and at least the opening length, so a four-backtick block may contain three-backtick examples); trailing newline; `{{…}}`, TODO, TBD, FIXME outside code (warn) |
+| Markdown | unclosed code fence (error; CommonMark matching — a fence is indented at most 3 spaces relative to its list item, and a closing fence uses the same character and at least the opening length, so a four-backtick block may contain three-backtick examples and four-space-indented code is not a fence); trailing newline; `{{…}}`, TODO, TBD, FIXME outside code (warn) |
 | Versions | pinned dependency versions (`pip install x==1.2.3`, `<version>1.2.3</version>`, `crate = "1.2.3"`) are warned — name the coordinate and resolve the latest release at generation time. YugabyteDB product release numbers in example payloads are allowed |
 | Docs | the structure tree in this file mentions every skill directory (warn) |
 
