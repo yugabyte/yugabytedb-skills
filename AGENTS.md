@@ -6,7 +6,7 @@ This file provides guidance to AI agents when working with yugabyteDB.
 
 YugabyteDB Agent Skills — a collection of reusable AI agent skills (delivered as Markdown files) for deploying, managing and developing for YugabyteDB, a Postgres-compatible distributed SQL database. Published to the Claude Plugin Marketplace and compatible with Claude Code, Cursor, GitHub Copilot, Windsurf, Gemini, and any tool supporting the [skills.sh](https://skills.sh) ecosystem.
 
-**This is a documentation-only repository.** There is no build system, test suite, or application code.
+**This is a documentation-only repository.** There is no build system or application code. The only automation is `scripts/check_skills.py`, a static checker for the skill files that runs in CI — see [Static checks](#static-checks).
 
 ## Repository Structure
 
@@ -44,6 +44,11 @@ skills/
       providers-universe.md    # Stage 2: yba_aws/gcp/azure/onprem_provider, *_storage_config, yba_universe, yba_backup/backup_schedule/restore
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
+.skills-lint.json             # Known exceptions for the static checks (each needs a reason)
+scripts/
+  check_skills.py             # Static checks for skills (frontmatter, manifest/README sync, size, links, version pins)
+.github/workflows/
+  skills-lint.yml             # Runs scripts/check_skills.py on every pull request and on main
 ```
 
 ## Skill File Format
@@ -80,3 +85,28 @@ npx skills add yugabyte/yugabytedb-skills -s yba-api         # YBA REST API skil
 npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain # RAG / LangChain skill only
 npx skills add yugabyte/yugabytedb-skills -s yba-terraform   # YBA Terraform provider skill only
 ```
+
+## Static checks
+
+`scripts/check_skills.py` (standard library only) validates every skill and runs in CI on every pull request (`.github/workflows/skills-lint.yml`). Run it locally from the repo root before opening a PR:
+
+```bash
+python3 scripts/check_skills.py                     # report; exit 1 on errors
+python3 scripts/check_skills.py --strict            # warnings fail too
+python3 scripts/check_skills.py --fix-descriptions  # sync marketplace.json descriptions from SKILL.md
+```
+
+What it enforces (errors fail CI, warnings annotate the PR):
+
+| Group | Rules |
+| --- | --- |
+| Frontmatter | present; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars; `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill) |
+| Manifest | every `skills/*/` directory is registered in `marketplace.json`; every entry's directory exists; manifest `name` and `description` equal the frontmatter |
+| README | every registered skill has an Available Skills row (error) and an `npx skills add … -s <name>` line (warn) |
+| Size | `SKILL.md` over 500 lines is an error; over 400 lines or 4000 words is a warning; a reference file over 600 lines is a warning |
+| References | every `references/…` link resolves (error); every reference file is linked or mentioned from `SKILL.md` (warn) |
+| Markdown | balanced code fences (error); trailing newline; `{{…}}`, TODO, TBD, FIXME outside code (warn) |
+| Versions | pinned dependency versions (`pip install x==1.2.3`, `<version>1.2.3</version>`, `crate = "1.2.3"`) are warned — name the coordinate and resolve the latest release at generation time. YugabyteDB product release numbers in example payloads are allowed |
+| Docs | the structure tree in this file mentions every skill directory (warn) |
+
+Known exceptions live in `.skills-lint.json`. Every entry needs a `reason`, and ignored findings are still printed as `IGNORED` so they stay visible.

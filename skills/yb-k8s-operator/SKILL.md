@@ -1,5 +1,5 @@
 ---
-name: operator
+name: yb-k8s-operator
 description: Use when provisioning, managing, or troubleshooting YugabyteDB universes on Kubernetes via the YugabyteDB Kubernetes Operator and YugabyteDB Anywhere CRDs (YBUniverse, YBProvider, Release, Backup, StorageConfig, PitrRestore, DrConfig, etc.). Triggers on kubectl apply, Helm install of yugaware, operator CRDs, or any mention of YugabyteDB with Kubernetes.
 ---
 
@@ -105,7 +105,7 @@ Status: `status.state`, `status.message`.
 
 Kubeconfig secrets must contain a single key `kubeconfig` with complete kubeconfig YAML. Use long-lived service account tokens — YBA does not support short-lived token plugins. See [references/kubeconfig-secrets.md](references/kubeconfig-secrets.md) for the full procedure.
 
-For multi-cluster service mesh (Istio / Cilium), see [references/multi-cluster-service-mesh.md](references/multi-cluster-service-mesh.md).
+For multi-cluster service mesh (Istio / Cilium), see [references/multi-cluster.md](references/multi-cluster.md).
 
 ### YBCertificate
 
