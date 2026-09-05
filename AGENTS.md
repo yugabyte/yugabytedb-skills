@@ -149,12 +149,12 @@ What it enforces (errors fail CI, warnings annotate the PR):
 
 | Group | Rules |
 | --- | --- |
-| Frontmatter | present; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars; `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill) |
+| Frontmatter | present and closed with `---`; values decoded as YAML scalars (plain, quoted, `|` / `>` block) — anything else is an error; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars; `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill) |
 | Manifest | every `skills/*/` directory is registered in `marketplace.json`; every entry's directory exists; manifest `name` and `description` equal the frontmatter |
 | README | every registered skill has an Available Skills row (error) and an `npx skills add … -s <name>` line (warn) |
 | Size | `SKILL.md` over 500 lines is an error; over 400 lines or 4000 words is a warning; a reference file over 600 lines is a warning |
 | References | every `references/…` link resolves (error); every reference file is linked or mentioned from `SKILL.md` (warn) |
-| Markdown | balanced code fences (error); trailing newline; `{{…}}`, TODO, TBD, FIXME outside code (warn) |
+| Markdown | unclosed code fence (error; CommonMark matching — a closing fence uses the same character and at least the opening length, so a four-backtick block may contain three-backtick examples); trailing newline; `{{…}}`, TODO, TBD, FIXME outside code (warn) |
 | Versions | pinned dependency versions (`pip install x==1.2.3`, `<version>1.2.3</version>`, `crate = "1.2.3"`) are warned — name the coordinate and resolve the latest release at generation time. YugabyteDB product release numbers in example payloads are allowed |
 | Docs | the structure tree in this file mentions every skill directory (warn) |
 

@@ -39,7 +39,15 @@ DESCRIPTION_MAX = 1024
 DESCRIPTION_MIN = 60
 
 KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-FENCE = re.compile(r"^\s*```")
+# Frontmatter: `key: value` or `key:` at column 0 (YAML requires whitespace after the colon).
+KEY_LINE = re.compile(r"^([A-Za-z_][\w-]*):(?:[ \t]+(.*))?$")
+BLOCK_HEADER = re.compile(r"^([|>])([1-9+-]{0,2})[ \t]*(#.*)?$")
+UNSUPPORTED_SCALAR_START = ("[", "{", "&", "*", "!", "%", "@", "`")
+DOUBLE_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '"', "/": "/", " ": " ",
+                  "a": "\a", "b": "\b", "e": "\x1b", "f": "\f", "v": "\v", "_": " ",
+                  "N": "", "L": " ", "P": " "}
+# CommonMark fenced code: a run of 3+ backticks or tildes, then an optional info string.
+FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 REF_LINK = re.compile(r"\]\((references/[^)#\s]+)")
 PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\bTBD\b|\bFIXME\b|\bTODO\b|lorem ipsum", re.I)
 USAGE_HINT = re.compile(r"\buse (when|this skill|for)\b|\btriggers?\b|\bwhen\b", re.I)
@@ -105,32 +113,206 @@ class Checker:
     def read(path: Path) -> str:
         return path.read_text(encoding="utf-8")
 
+    # ---- frontmatter: a YAML subset, standard library only -------------------
     @staticmethod
-    def frontmatter(text: str) -> tuple[dict[str, str], dict[str, int]]:
-        """Return (fields, line numbers). Only top-level `key: value` lines."""
+    def frontmatter(text: str) -> tuple[dict[str, str | None], dict[str, int], list[tuple[str, int | None, str]]]:
+        """Parse the leading `--- ... ---` block.
+
+        Returns (fields, key line numbers, problems). Values are decoded the way a
+        YAML parser sees them: plain scalars (comment stripped, continuation lines
+        folded), 'single' and "double" quoted scalars, and `|` / `>` block scalars
+        with `-` / `+` chomping. Nested mappings and sequences are skipped (value
+        None). Problems are (rule, line, message): FM001 when the block is never
+        closed, FM007 for a line or value this subset cannot decode. Callers must
+        not act on values from a block that has problems.
+        """
         lines = text.split("\n")
         if not lines or lines[0].strip() != "---":
-            return {}, {}
-        fields: dict[str, str] = {}
+            return {}, {}, []
+        fields: dict[str, str | None] = {}
         where: dict[str, int] = {}
-        for i, line in enumerate(lines[1:], start=2):
-            if line.strip() == "---":
+        problems: list[tuple[str, int | None, str]] = []
+        i, closed = 1, False
+        while i < len(lines):
+            stripped = lines[i].strip()
+            if stripped == "---":
+                closed = True
                 break
-            m = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", line)
-            if m:
-                fields[m.group(1)] = m.group(2).strip()
-                where[m.group(1)] = i
-        return fields, where
+            if not stripped or stripped.startswith("#"):
+                i += 1
+                continue
+            m = KEY_LINE.match(lines[i])
+            if not m:
+                # Stop at the first undecodable line, as a YAML parser would; only look
+                # ahead for the terminator so that FM001 stays accurate.
+                problems.append(("FM007", i + 1, f"cannot parse frontmatter line: {stripped[:60]}"))
+                closed = any(l.strip() == "---" for l in lines[i + 1:])
+                break
+            key = m.group(1)
+            where[key] = i + 1
+            value, i, err = Checker._yaml_value(lines, i, m.group(2))
+            if err:
+                problems.append(("FM007", where[key], f"'{key}': {err}"))
+            fields[key] = value
+        if not closed:
+            problems.append(("FM001", len(text.splitlines()) or 1,
+                             "frontmatter block is not closed (no terminating ---)"))
+        return fields, where, problems
+
+    @staticmethod
+    def _yaml_value(lines: list[str], i: int, rest: str | None) -> tuple[str | None, int, str | None]:
+        """Decode the value after `key:` on lines[i]. Returns (value, next line index, error)."""
+        rest = (rest or "").strip()
+        if not rest or rest.startswith("#"):
+            # Null, or a nested mapping / sequence on the following indented lines: skip it.
+            j, nested = i + 1, False
+            while j < len(lines) and (not lines[j].strip() or lines[j][0] in " \t"):
+                nested = nested or bool(lines[j].strip())
+                j += 1
+            return (None if nested else ""), j, None
+        m = BLOCK_HEADER.match(rest)
+        if m:
+            return Checker._block_scalar(lines, i, m.group(1), m.group(2))
+        if rest[0] in "'\"":
+            return Checker._quoted_scalar(lines, i, rest)
+        if rest[0] in UNSUPPORTED_SCALAR_START:
+            return None, i + 1, f"unsupported YAML syntax: {rest[:40]}"
+        value = Checker._strip_comment(rest)
+        j = i + 1
+        while j < len(lines) and lines[j].strip() and lines[j][0] in " \t" and not lines[j].strip().startswith("#"):
+            value += " " + Checker._strip_comment(lines[j].strip())
+            j += 1
+        return value, j, None
+
+    @staticmethod
+    def _strip_comment(s: str) -> str:
+        m = re.search(r"(^|[ \t])#", s)
+        return (s[: m.start()] if m else s).rstrip()
+
+    @staticmethod
+    def _quoted_scalar(lines: list[str], i: int, rest: str) -> tuple[str | None, int, str | None]:
+        q, buf, j = rest[0], rest, i
+        while True:
+            end = Checker._closing_quote(buf, q)
+            if end is not None:
+                break
+            j += 1
+            if j >= len(lines) or lines[j].strip() == "---":
+                return None, i + 1, "unterminated quoted string"
+            buf += " " + lines[j].strip()  # a line break inside quotes folds to a space
+        tail = buf[end + 1:].strip()
+        if tail and not tail.startswith("#"):
+            return None, j + 1, f"unexpected text after closing quote: {tail[:40]}"
+        body = buf[1:end]
+        if q == "'":
+            return body.replace("''", "'"), j + 1, None
+        return re.sub(r"\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)",
+                      Checker._double_escape, body), j + 1, None
+
+    @staticmethod
+    def _closing_quote(buf: str, q: str) -> int | None:
+        k = 1
+        while k < len(buf):
+            c = buf[k]
+            if q == "'" and c == "'":
+                if buf[k + 1:k + 2] == "'":
+                    k += 2
+                    continue
+                return k
+            if q == '"':
+                if c == "\\":
+                    k += 2
+                    continue
+                if c == '"':
+                    return k
+            k += 1
+        return None
+
+    @staticmethod
+    def _double_escape(m: re.Match) -> str:
+        esc = m.group(1)
+        if esc[0] in "xuU" and len(esc) > 1:
+            return chr(int(esc[1:], 16))
+        return DOUBLE_ESCAPES.get(esc, esc)
+
+    @staticmethod
+    def _block_scalar(lines: list[str], i: int, style: str, indicators: str) -> tuple[str | None, int, str | None]:
+        chomp = "-" if "-" in indicators else "+" if "+" in indicators else ""
+        indent = next((int(c) for c in indicators if c.isdigit()), None)
+        raw: list[str] = []
+        j = i + 1
+        while j < len(lines):
+            line = lines[j]
+            if not line.strip():
+                raw.append("")
+                j += 1
+                continue
+            lead = len(line) - len(line.lstrip(" "))
+            if indent is None:
+                if lead == 0:
+                    break
+                indent = lead
+            if lead < indent:
+                break
+            raw.append(line[indent:])
+            j += 1
+        trailing = 0
+        while raw and raw[-1] == "":
+            raw.pop()
+            trailing += 1
+        if style == "|":
+            text = "\n".join(raw)
+        else:  # folded: single breaks become spaces, blank lines and more-indented lines keep breaks
+            text, breaks, prev_more = "", 0, False
+            for line in raw:
+                if not line:
+                    breaks += 1
+                    continue
+                more = line[0] in " \t"
+                if not text:
+                    text = line
+                elif breaks:
+                    text += "\n" * breaks + line
+                elif more or prev_more:
+                    text += "\n" + line
+                else:
+                    text += " " + line
+                breaks, prev_more = 0, more
+        if text and chomp != "-":
+            text += "\n" * (1 + trailing if chomp == "+" else 1)
+        return text, j, None
+
+    # ---- fenced code blocks (CommonMark matching) ----------------------------
+    @staticmethod
+    def fence_map(lines: list[str]) -> tuple[list[bool], int | None]:
+        """Return (inside flag per line, line number of an unclosed opening fence or None).
+
+        Delimiter lines count as inside. A fence closes only on a line with the same
+        character (backtick or tilde), at least the opening length and nothing else,
+        so a four-backtick block may contain three-backtick examples.
+        """
+        inside = [False] * len(lines)
+        open_char, open_len, open_line = "", 0, None
+        for idx, line in enumerate(lines):
+            m = FENCE_OPEN.match(line)
+            if open_line is None:
+                # the info string of a backtick fence may not contain backticks
+                if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                    open_char, open_len, open_line = m.group(1)[0], len(m.group(1)), idx + 1
+                    inside[idx] = True
+                continue
+            inside[idx] = True
+            if m and m.group(1)[0] == open_char and len(m.group(1)) >= open_len and not m.group(2).strip():
+                open_line = None
+        return inside, open_line
 
     @staticmethod
     def outside_fences(text: str):
         """Yield (line_no, line) for lines that are not inside a code fence."""
-        inside = False
-        for i, line in enumerate(text.split("\n"), start=1):
-            if FENCE.match(line):
-                inside = not inside
-                continue
-            if not inside:
+        lines = text.split("\n")
+        inside, _ = Checker.fence_map(lines)
+        for i, line in enumerate(lines, start=1):
+            if not inside[i - 1]:
                 yield i, line
 
     # ---- the checks ----------------------------------------------------------
@@ -165,16 +347,19 @@ class Checker:
             return
         text = self.read(skill_md)
         lines = text.split("\n")
-        fm, where = self.frontmatter(text)
+        fm, where, problems = self.frontmatter(text)
 
         # -- frontmatter
-        if not fm:
+        for rule, line_no, msg in problems:
+            self.add(rule, "ERROR", skill_md, line_no, msg)
+        bad_lines = {line_no for _, line_no, _ in problems}
+        if not fm and not problems:
             self.add("FM001", "ERROR", skill_md, 1, "no YAML frontmatter block (--- ... ---)")
-        name = fm.get("name")
-        desc = fm.get("description")
-        if fm and not name:
+        name = (fm.get("name") or "").strip() or None
+        desc = (fm.get("description") or "").strip() or None
+        if fm and not name and where.get("name") not in bad_lines:
             self.add("FM002", "ERROR", skill_md, 1, "frontmatter has no 'name'")
-        if fm and not desc:
+        if fm and not desc and where.get("description") not in bad_lines:
             self.add("FM002", "ERROR", skill_md, 1, "frontmatter has no 'description'")
         if name:
             if name != d.name:
@@ -262,9 +447,11 @@ class Checker:
         text = text if text is not None else self.read(path)
         lines = text.split("\n")
         n_lines = len(text.splitlines())
-        fences = [i for i, l in enumerate(lines, start=1) if FENCE.match(l)]
-        if len(fences) % 2:
-            self.add("MD001", "ERROR", path, fences[-1], "unbalanced code fence (odd number of ``` lines)")
+        _, unclosed = self.fence_map(lines)
+        if unclosed:
+            self.add("MD001", "ERROR", path, unclosed,
+                     "code fence opened here is never closed (the closing fence needs the same "
+                     "character and at least the opening length)")
         if text and not text.endswith("\n"):
             self.add("MD002", "WARN", path, n_lines, "file does not end with a newline")
         if not is_skill_md and n_lines > REFERENCE_WARN_LINES:
@@ -292,8 +479,10 @@ class Checker:
             skill_md = self.root / p["skills"][0] / "SKILL.md"
             if not skill_md.exists():
                 continue
-            fm, _ = self.frontmatter(self.read(skill_md))
-            desc = fm.get("description")
+            fm, _, problems = self.frontmatter(self.read(skill_md))
+            if problems:
+                continue  # never write a value the parser could not decode
+            desc = (fm.get("description") or "").strip()
             if desc and p.get("description", "").strip() != desc:
                 p["description"] = desc
                 changed += 1
