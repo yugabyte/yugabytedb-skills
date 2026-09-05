@@ -6,7 +6,7 @@ description: Use when writing or reviewing SQL, schema definitions, or applicati
 # YugabyteDB YSQL Best Practices
 
 **This skill includes:**
-- `references/smart-drivers.md` — connection examples for Python, Java, Go, Node.js
+- `references/smart-drivers.md` — connection examples for all 9 smart drivers: Python (psycopg3, psycopg2), Java (JDBC, R2DBC), Go, Node.js, C#, Rust, Ruby
 - `references/retry-patterns.md` — transaction retry code in Python and Java
 
 YugabyteDB is a distributed, PostgreSQL-compatible database (YSQL on port 5433) that is **ACID-compliant**, **highly available**, **horizontally scalable**, and supports **hash/range sharding** of tables and indexes. Every design choice should balance read efficiency, write scalability, and operational cost.
@@ -253,9 +253,11 @@ If partitioning provides only marginal value for your workload, keep the model s
 ## Application Patterns
 
 ### Smart Drivers (Client-Side Load Balancing)
-Without smart drivers, the application connects to a single address — it has no awareness of cluster topology and cannot distribute connections across nodes. Always use `load_balance=true` and `topology_keys` for zone-aware routing.
+Without smart drivers, the application connects to a single address — it has no awareness of cluster topology and cannot distribute connections across nodes. Always enable load balancing and set `topology_keys` for zone-aware routing. The parameter name varies by driver: `load_balance=true` (psycopg2, pgx, Rust, Ruby, JDBC as `load-balance`), `load_balance_hosts=true` (psycopg3, R2DBC as `loadBalanceHosts`, Npgsql as `Load Balance Hosts`), `loadBalance: true` (Node.js).
 
-> **Connection examples for Python, Java, Go, Node.js:** see [references/smart-drivers.md](references/smart-drivers.md)
+**Python driver choice:** match the driver the codebase already uses. psycopg3 → `psycopg-yugabytedb` (import stays `psycopg`). psycopg2 → `psycopg2-yugabytedb`. Do not default to psycopg2 for new code — psycopg3 is the current driver.
+
+> **Connection examples for all 9 smart drivers (Python psycopg3/psycopg2, Java JDBC/R2DBC, Go, Node.js, C#, Rust, Ruby):** see [references/smart-drivers.md](references/smart-drivers.md)
 
 Topology keys format: `cloud.region.zone:priority` (1=primary, 2=fallback, `*`=wildcard).
 
@@ -275,6 +277,11 @@ For highly contentious workloads, reducing `wait_queue_poll_interval_ms` can imp
 Set `statement_timeout` to at least 30 seconds, or about 2-3x your longest expected query in that context. Apply at connection/session scope when possible; database-level defaults are broader and should be used deliberately.
 
 ```python
+# psycopg3 (psycopg-yugabytedb)
+conn = psycopg.connect("...",
+    options="-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000")
+
+# psycopg2 (psycopg2-yugabytedb)
 conn = psycopg2.connect("...",
     options="-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000")
 ```

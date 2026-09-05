@@ -15,7 +15,7 @@ skills/
   ysql/
     SKILL.md                  # PostgreSQL-compatible YSQL API skill (port 5433)
     references/               # Detailed code examples (progressive disclosure)
-      smart-drivers.md        # Connection examples for Python, Java, Go, Node.js
+      smart-drivers.md        # Connection examples for all 9 smart drivers: Python (psycopg3, psycopg2), Java (JDBC, R2DBC), Go, Node.js, C#, Rust, Ruby
       retry-patterns.md       # Transaction retry code in Python and Java
   ycql/
     SKILL.md                  # Cassandra-compatible YCQL API skill (port 9042)
