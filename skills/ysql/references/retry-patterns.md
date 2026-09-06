@@ -1,6 +1,28 @@
 # Transaction Retry Patterns
 
-## Python
+## Python (psycopg3 — `psycopg-yugabytedb`)
+```python
+import psycopg, time, random
+from psycopg.errors import SerializationFailure, DeadlockDetected  # 40001, 40P01
+
+def with_retry(conn, operation, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            result = operation(conn)
+            conn.commit()
+            return result
+        except (SerializationFailure, DeadlockDetected):
+            conn.rollback()              # MUST rollback before retry
+            delay = min(0.025 * (2 ** attempt), 2.0) + random.uniform(0, 0.01)
+            time.sleep(delay)
+        except psycopg.Error:
+            conn.rollback()
+            raise                        # permanent error — fail fast
+    raise Exception(f"Transaction failed after {max_retries} retries")
+```
+psycopg3 exposes one exception class per SQLSTATE; `e.sqlstate` still holds the raw code if you need to log it.
+
+## Python (psycopg2 — `psycopg2-yugabytedb`)
 ```python
 import psycopg2, time, random
 
