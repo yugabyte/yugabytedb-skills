@@ -6,7 +6,7 @@ YugabyteDB publishes 9 smart drivers for YSQL. Each extends the upstream Postgre
 | --- | --- | --- | --- |
 | Python | psycopg3 | `psycopg-yugabytedb` | `load_balance_hosts=true` |
 | Python | psycopg2 | `psycopg2-yugabytedb` | `load_balance=true` |
-| Java | JDBC | `jdbc:yugabytedb://` | `load-balance=true` |
+| Java | JDBC | `com.yugabyte:jdbc-yugabytedb` (Maven; URL scheme `jdbc:yugabytedb://`) | `load-balance=true` |
 | Java | R2DBC | `com.yugabyte:r2dbc-postgresql` | `loadBalanceHosts=true` |
 | Go | pgx | `github.com/yugabyte/pgx/v5` | `load_balance=true` |
 | Node.js | node-postgres | `@yugabytedb/pg` | `loadBalance: true` |
@@ -33,7 +33,7 @@ conn = psycopg.connect(
 Pooling: `pip install "psycopg-yugabytedb[pool]"`, then `psycopg_pool.ConnectionPool(<same conninfo>, min_size=4, max_size=20)` — pooled connections still go through the smart-driver dispatcher.
 
 **psycopg3 traps:**
-- `psycopg-yugabytedb` and upstream `psycopg` / `psycopg-binary` / `psycopg-c` all install into `site-packages/psycopg/` and cannot coexist. Uninstall the upstream package first, or use a dedicated virtualenv.
+- `psycopg-yugabytedb` and upstream `psycopg` / `psycopg-binary` / `psycopg-c` all install into `site-packages/psycopg/` and cannot coexist. Uninstall the upstream package first, or use a dedicated virtualenv. If another dependency requires upstream `psycopg` (for example `langchain_postgres`, see the `yb-rag-langchain` skill), the two cannot share one environment: tell the user and let them choose between a dedicated virtualenv for the smart driver and upstream `psycopg` with infrastructure-level load balancing — do not pick silently.
 - If `topology_keys` matches no live node, `connect()` raises `OperationalError` — there is no cluster-wide fallback in the current release.
 
 ## Python (psycopg2) — `pip install psycopg2-yugabytedb`
@@ -49,7 +49,8 @@ conn = psycopg2.connect(
 )
 ```
 
-## Java (JDBC) — `jdbc:yugabytedb://`
+## Java (JDBC) — Maven `com.yugabyte:jdbc-yugabytedb`
+The driver registers the `jdbc:yugabytedb://` URL scheme; parameters are hyphenated.
 ```java
 String url = "jdbc:yugabytedb://host1:5433,host2:5433,host3:5433/yugabyte"
     + "?load-balance=true&topology-keys=aws.us-east.us-east-1a:1"
@@ -64,10 +65,11 @@ PostgresqlConnectionFactory connectionFactory = new PostgresqlConnectionFactory(
         .addHost("host2", 5433)
         .username("yugabyte").password("yugabyte").database("yugabyte")
         .loadBalanceHosts(true)
+        .topologyKeys("aws.us-east.us-east-1a:1,aws.us-east.us-east-1b:2")
         .ybServersRefreshInterval(10)
         .build());
 ```
-URL form: `r2dbc:postgresql://user:password@host:5433/yugabyte?loadBalanceHosts=true`. Topology: `topologyKeys` (`cloud.region.zone:priority`, comma-separated) — ignored unless `loadBalanceHosts` is true.
+URL form: `r2dbc:postgresql://user:password@host:5433/yugabyte?loadBalanceHosts=true&topologyKeys=aws.us-east.us-east-1a:1`. `topologyKeys` takes `cloud.region.zone:priority`, comma-separated, and is ignored unless `loadBalanceHosts` is true.
 
 ## Go — `github.com/yugabyte/pgx/v5/pgxpool`
 ```go
