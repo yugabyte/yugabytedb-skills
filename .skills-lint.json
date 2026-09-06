@@ -1,0 +1,19 @@
+{
+  "ignore": [
+    {
+      "rule": "MP001",
+      "path": "skills/explain_plan_analyzer",
+      "reason": "Deliberately unregistered until the register-vs-remove decision: the content is PostgreSQL-generic (no EXPLAIN (ANALYZE, DIST) / Storage Read Requests guidance) and its trigger overlaps the ysql skill."
+    },
+    {
+      "rule": "FM003",
+      "path": "skills/explain_plan_analyzer",
+      "reason": "Same pending decision; frontmatter name 'explain-plan-analyzer' vs directory 'explain_plan_analyzer' is reconciled when the skill is registered or the directory removed."
+    },
+    {
+      "rule": "AG001",
+      "match": "explain_plan_analyzer",
+      "reason": "Same pending decision; AGENTS.md lists only registered skills."
+    }
+  ]
+}

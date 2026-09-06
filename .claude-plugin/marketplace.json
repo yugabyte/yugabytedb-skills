@@ -29,7 +29,7 @@
     },
     {
       "name": "yb-k8s-operator",
-      "description": "Use when provisioning, managing, or troubleshooting YugabyteDB universes on Kubernetes via the YugabyteDB Kubernetes Operator and YugabyteDB Anywhere CRDs (YBUniverse, YBProvider, Release, Backup, StorageConfig, etc.). Triggers on kubectl apply, Helm install of yugaware, operator CRDs, or any mention of YugabyteDB with Kubernetes.",
+      "description": "Use when provisioning, managing, or troubleshooting YugabyteDB universes on Kubernetes via the YugabyteDB Kubernetes Operator and YugabyteDB Anywhere CRDs (YBUniverse, YBProvider, Release, Backup, StorageConfig, PitrRestore, DrConfig, etc.). Triggers on kubectl apply, Helm install of yugaware, operator CRDs, or any mention of YugabyteDB with Kubernetes.",
       "source": "./",
       "strict": false,
       "skills": [
@@ -38,7 +38,7 @@
     },
     {
       "name": "yba-api",
-      "description": "Use when scripting, automating, or troubleshooting with YugabyteDB Anywhere (YBA) \u2014 the control-plane for YugabyteDB which creates and manages providers, releases, universes, backups, KMS, and DR. Uses the YBA REST API and triggers on /api/v1/, /api/v2/, X-AUTH-YW-API-TOKEN, apiToken, customerUUID, taskUUID, registration of a new YBA instance, or any mention of the YBA API. Does NOT cover YugabyteDB Aeon or database access via YSQL/YCQL.",
+      "description": "Use when scripting, automating, or troubleshooting the YugabyteDB Anywhere (YBA) REST API — the control-plane API for self-managed YBA instances that creates and manages providers, releases, universes, backups, KMS, and DR. Triggers on `/api/v1/`, `/api/v2/`, `X-AUTH-YW-API-TOKEN`, `apiToken`, `customerUUID`, `taskUUID`, `Invoke-YbaRequest`, registration of a new YBA instance, or any mention of the YBA API. Does NOT cover YugabyteDB Aeon (use the Aeon API skill) or database access via YSQL/YCQL (use those skills).",
       "source": "./",
       "strict": false,
       "skills": [
@@ -47,7 +47,7 @@
     },
     {
       "name": "yba-terraform",
-      "description": "Use when writing or generating Terraform for the yugabyte/yba provider — installing YugabyteDB Anywhere (YBA) on a VM, registering the first customer, and creating AWS/GCP/Azure or on-prem cloud providers, storage configs, universes, backups, schedules, and restores. Also covers the upstream cloud IAM (IAM user / service account / service principal) that grants YBA node-deployment permissions and the CLI commands to discover VPC/subnet/security-group network info. Triggers on yba_installer, yba_customer_resource, yba_aws_provider/yba_gcp_provider/yba_azure_provider, yba_universe, yba_backup, source = \"yugabyte/yba\", or any mention of the YBA Terraform provider. Does NOT cover the YBA REST API directly (use yba-api) or YugabyteDB Aeon.",
+      "description": "Use when writing, generating, or troubleshooting Terraform that drives YugabyteDB Anywhere (YBA) via the `yugabyte/yba` provider — installing YBA on a VM, registering the first customer, and creating cloud (AWS/GCP/Azure) or on-prem providers, storage configs, universes, backups, schedules, and restores. Also covers the upstream cloud Terraform (IAM user / service account / service principal) that grants YBA its node-deployment permissions, and the CLI commands to discover the VPC/subnet/security-group network info those manifests need. Triggers on `yba_installer`, `yba_customer_resource`, `yba_aws_provider`/`yba_gcp_provider`/`yba_azure_provider`, `yba_universe`, `yba_backup`, `source = \"yugabyte/yba\"`, or any mention of the YBA Terraform provider. Does NOT cover the YBA REST API directly (use the yba-api skill) or YugabyteDB Aeon.",
       "source": "./",
       "strict": false,
       "skills": [
