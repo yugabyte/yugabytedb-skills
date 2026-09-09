@@ -98,7 +98,7 @@ The [static checks](#static-checks) catch structural problems. The rules here co
 
 - `SKILL.md` is loaded whole once the skill triggers, so every line competes with the user's task. The checker warns at 400 lines and fails at 500; most skills should be shorter.
 - Lead with the decisions that differ from the upstream technology (YSQL: sharding, smart drivers, retries; the operator: CRD shapes, multi-cluster networking). No introductions, no definitions the model already has.
-- Move long code, per-language variants and endpoint catalogues into `references/<topic>.md`, linked directly from `SKILL.md`. One level deep only — a reference file must not point to another reference file. Put a contents list at the top of any reference longer than about 100 lines so a partial read still shows its scope.
+- Move long code, per-language variants and endpoint catalogues into `references/<topic>.md`, linked directly from `SKILL.md`. Keep new references one level deep — a reference file should not point to another reference file. (The `yba-api` references cross-link each other today; that set is grandfathered, not a pattern to copy.) Put a contents list at the top of any reference longer than about 100 lines so a partial read still shows its scope.
 - Split references by domain (`smart-drivers.md`, `retry-patterns.md`), not by size, so the agent loads only the file the task needs.
 
 ### Instructions the agent can act on
@@ -118,7 +118,7 @@ The [static checks](#static-checks) catch structural problems. The rules here co
 
 ### Before opening the PR
 
-1. `python3 scripts/check_skills.py --strict` passes.
+1. `python3 scripts/check_skills.py` reports no errors (this is what CI enforces). It also prints warnings — the repo currently carries a few size warnings (SZ002/SZ003) that are expected; do not add new ones. `--strict` additionally fails on any warning, so use it only to check that your change introduced none, not as a gate that must pass on the repo as it stands.
 2. The description has been tested: a fresh session picks this skill for the target request and ignores it for a neighbouring one (YSQL vs YCQL, YBA API vs Terraform).
 3. The regression task from "Start from a failure" produces better output with the skill than without, and the PR says how it was checked.
 
@@ -155,9 +155,9 @@ What it enforces (errors fail CI, warnings annotate the PR):
 | Manifest | every `skills/*/` directory is registered in `marketplace.json`; every entry's directory exists; manifest `name` and `description` equal the frontmatter |
 | README | every registered skill has an Available Skills row (error) and an `npx skills add … -s <name>` line (warn) |
 | Size | `SKILL.md` over 500 lines is an error; over 400 lines or 4000 words is a warning; a reference file over 600 lines is a warning |
-| References | every `references/…` link resolves (error); every reference file is linked or mentioned from `SKILL.md` (warn) |
+| References | every `references/…` path resolves — both markdown links and backtick-wrapped mentions like `` `references/foo.md` `` (error); every reference file is linked or mentioned from `SKILL.md` (warn) |
 | Markdown | unclosed code fence (error; CommonMark matching — a fence is indented at most 3 spaces relative to its list item, and a closing fence uses the same character and at least the opening length, so a four-backtick block may contain three-backtick examples and four-space-indented code is not a fence); trailing newline; `{{…}}`, TODO, TBD, FIXME outside code (warn) |
 | Versions | pinned dependency versions (`pip install x==1.2.3`, `<version>1.2.3</version>`, `crate = "1.2.3"`) are warned — name the coordinate and resolve the latest release at generation time. Compatibility constraints (`>=`, `~>`) are not flagged. YugabyteDB product release numbers in example payloads are allowed |
 | Docs | the structure tree in this file mentions every skill directory (warn) |
 
-Known exceptions live in `.skills-lint.json`. Every entry needs a `reason`, and ignored findings are still printed as `IGNORED` so they stay visible.
+Known exceptions live in `.skills-lint.json`. Every entry needs both a `rule` and a `reason` (an entry missing either is reported as `CFG001`), and ignored findings are still printed as `IGNORED` so they stay visible.

@@ -52,6 +52,10 @@ FENCE_OPEN = re.compile(r"^ *(`{3,}|~{3,})(.*)$")
 # List item marker with its content indent: leading spaces, marker, spaces before the content.
 LIST_ITEM = re.compile(r"^( *)([-*+]|\d{1,9}[.)])( +)(?=\S)")
 REF_LINK = re.compile(r"\]\((references/[^)#\s]+)")
+# A backtick-wrapped reference path, e.g. `references/foo.md` in the "This skill
+# includes" list. RF001 checks these resolve too: a bare mention of a renamed
+# file tells the agent up front to open a path that does not exist.
+REF_MENTION = re.compile(r"`(references/[^`\s]+\.md)`")
 PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\bTBD\b|\bFIXME\b|\bTODO\b|lorem ipsum", re.I)
 USAGE_HINT = re.compile(r"\buse (when|this skill|for)\b|\btriggers?\b|\bwhen\b", re.I)
 
@@ -96,6 +100,9 @@ class Checker:
             if not e.get("reason"):
                 self.findings.append(Finding("CFG001", "ERROR", ".skills-lint.json", None,
                                              f"ignore entry {e!r} has no reason"))
+            if not e.get("rule"):
+                self.findings.append(Finding("CFG001", "ERROR", ".skills-lint.json", None,
+                                             f"ignore entry {e!r} has no rule (it would match nothing)"))
         return entries
 
     def add(self, rule: str, level: str, path: Path | str, line: int | None, msg: str) -> None:
@@ -125,31 +132,37 @@ class Checker:
         YAML parser sees them: plain scalars (comment stripped, continuation lines
         folded), 'single' and "double" quoted scalars, and `|` / `>` block scalars
         with `-` / `+` chomping. Nested mappings and sequences are skipped (value
-        None). Problems are (rule, line, message): FM001 when the block is never
-        closed, FM007 for a line or value this subset cannot decode. Callers must
-        not act on values from a block that has problems.
+        None). Problems are (rule, line, message): FM001 when the block has no
+        closing `---`, FM007 for a line or value this subset cannot decode.
+
+        The closing `---` is the FIRST line that is exactly `---` after the opener,
+        matching how real frontmatter parsers delimit the block. A later `---`
+        thematic break in the body therefore cannot masquerade as the terminator:
+        an unterminated block whose body contains a thematic break lands on that
+        break, and the body lines above it (a heading, prose) do not decode as
+        `key: value`, so they are reported FM007 rather than silently absorbed.
+        Callers must not act on values from a block that has problems.
         """
         lines = text.split("\n")
         if not lines or lines[0].strip() != "---":
             return {}, {}, []
+        term = next((j for j in range(1, len(lines)) if lines[j].strip() == "---"), None)
+        scan_end = term if term is not None else len(lines)
         fields: dict[str, str | None] = {}
         where: dict[str, int] = {}
         problems: list[tuple[str, int | None, str]] = []
-        i, closed = 1, False
-        while i < len(lines):
+        first_bad: tuple[int, str] | None = None
+        i = 1
+        while i < scan_end:
             stripped = lines[i].strip()
-            if stripped == "---":
-                closed = True
-                break
-            if not stripped or stripped.startswith("#"):
+            if not stripped:
                 i += 1
                 continue
             m = KEY_LINE.match(lines[i])
             if not m:
-                # Stop at the first undecodable line, as a YAML parser would; only look
-                # ahead for the terminator so that FM001 stays accurate.
-                problems.append(("FM007", i + 1, f"cannot parse frontmatter line: {stripped[:60]}"))
-                closed = any(l.strip() == "---" for l in lines[i + 1:])
+                # Not `key: value` (a heading, a thematic break, prose): not
+                # frontmatter. Stop here, as a YAML parser would.
+                first_bad = (i + 1, stripped[:60])
                 break
             key = m.group(1)
             where[key] = i + 1
@@ -157,9 +170,11 @@ class Checker:
             if err:
                 problems.append(("FM007", where[key], f"'{key}': {err}"))
             fields[key] = value
-        if not closed:
+        if term is None:
             problems.append(("FM001", len(text.splitlines()) or 1,
                              "frontmatter block is not closed (no terminating ---)"))
+        elif first_bad is not None:
+            problems.append(("FM007", first_bad[0], f"cannot parse frontmatter line: {first_bad[1]}"))
         return fields, where, problems
 
     @staticmethod
@@ -432,13 +447,18 @@ class Checker:
             self.add("MP001", "ERROR", rel_dir, None,
                      "not registered in .claude-plugin/marketplace.json")
         else:
-            if name and plugin["name"] != name:
-                self.add("MP003", "ERROR", ".claude-plugin/marketplace.json", None,
-                         f"plugin name '{plugin['name']}' != frontmatter name '{name}' ({rel_dir})")
-            if desc and plugin.get("description", "").strip() != desc:
-                self.add("MP004", "ERROR", ".claude-plugin/marketplace.json", None,
-                         f"description for '{plugin['name']}' differs from SKILL.md frontmatter "
-                         f"(run with --fix-descriptions)")
+            # name/desc are only trustworthy when the frontmatter decoded cleanly;
+            # a block with FM001/FM007 problems must be fixed first, so skip the
+            # value-comparison checks (and their "run --fix-descriptions" advice,
+            # which the fixer would decline anyway) rather than act on garbage.
+            if not problems:
+                if name and plugin["name"] != name:
+                    self.add("MP003", "ERROR", ".claude-plugin/marketplace.json", None,
+                             f"plugin name '{plugin['name']}' != frontmatter name '{name}' ({rel_dir})")
+                if desc and plugin.get("description", "").strip() != desc:
+                    self.add("MP004", "ERROR", ".claude-plugin/marketplace.json", None,
+                             f"description for '{plugin['name']}' differs from SKILL.md frontmatter "
+                             f"(run with --fix-descriptions)")
             # -- README coverage (only for registered skills)
             if f"|`{plugin['name']}`|" not in readme.replace(" ", ""):
                 self.add("RD001", "ERROR", "README.md", None,
@@ -474,6 +494,15 @@ class Checker:
                 linked.add(Path(target).name)
                 if not (d / target).exists():
                     self.add("RF001", "ERROR", skill_md, i, f"link target does not exist: {target}")
+            # Backtick-wrapped mentions (e.g. the "This skill includes" list) count
+            # as references too — a stale one points the agent at a missing file
+            # even though it is not markdown-link syntax.
+            for m in REF_MENTION.finditer(line):
+                target = m.group(1)
+                if not (d / target).exists():
+                    self.add("RF001", "ERROR", skill_md, i, f"referenced path does not exist: {target}")
+                else:
+                    linked.add(Path(target).name)
         if refs_dir.is_dir():
             for f in sorted(refs_dir.glob("*.md")):
                 if f.name not in linked and f.name not in text:

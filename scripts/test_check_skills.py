@@ -69,6 +69,18 @@ class FrontmatterTests(unittest.TestCase):
         self.assertLessEqual(sum(1 for r, _, _ in problems if r == "FM007"), 1)
         self.assertEqual(fields["name"], "ysql")
 
+    def test_missing_terminator_with_thematic_break_in_body_is_flagged(self):
+        # An unterminated block whose body has a `---` thematic break must not be
+        # reported closed: the first '---' is the terminator, and the heading/prose
+        # above it fails to decode (FM007) rather than being silently absorbed.
+        text = ("---\nname: ysql\ndescription: x\n\n"
+                "# YugabyteDB YSQL Best Practices\n\n"
+                "Some intro prose without a colon.\n\n---\nmore body\n")
+        fields, _, problems = self.fm(text)
+        rules = [r for r, _, _ in problems]
+        self.assertIn("FM007", rules)
+        self.assertNotEqual(problems, [])
+
     def test_nested_mapping_is_skipped(self):
         fields, _, problems = self.fm(
             "---\nname: ysql\nmetadata:\n  author: x\n  version: \"1\"\ndescription: after nested\n---\n")
@@ -269,6 +281,30 @@ Done.
         self.skill.write_text(self.with_description(
             "Demo skill for SQL: review. Use when verifying that unquoted mapping syntax is rejected."))
         self.assertEqual(self.rules(self.check(), "ERROR"), ["FM007"])
+
+    def test_stale_backtick_reference_mention_is_rf001(self):
+        # A backtick-wrapped reference path that does not resolve (the "This skill
+        # includes" list shape) must be RF001, even though it is not link syntax.
+        self.skill.write_text(self.SKILL.replace(
+            "# Demo\n", "# Demo\n\n- `references/does-not-exist.md` — missing\n"))
+        self.assertIn("RF001", self.rules(self.check(), "ERROR"))
+
+    def test_broken_frontmatter_does_not_emit_mp004(self):
+        # With FM001/FM007 present, name/desc are untrustworthy: skip the manifest
+        # value-comparison checks (and their misleading --fix-descriptions advice).
+        lines = self.SKILL.split("\n")
+        del lines[[i for i, l in enumerate(lines) if l.strip() == "---"][1]]
+        self.skill.write_text("\n".join(lines))
+        self.write_manifest("stale-does-not-match")
+        errors = self.rules(self.check(), "ERROR")
+        self.assertIn("FM001", errors)
+        self.assertNotIn("MP004", errors)
+        self.assertNotIn("MP003", errors)
+
+    def test_baseline_entry_without_rule_is_cfg001(self):
+        (self.root / ".skills-lint.json").write_text(
+            json.dumps({"ignore": [{"path": "skills/x", "reason": "no rule key"}]}))
+        self.assertIn("CFG001", self.rules(self.check(), "ERROR"))
 
     def test_cli_exit_codes_and_github_format(self):
         script = Path(check_skills.__file__)

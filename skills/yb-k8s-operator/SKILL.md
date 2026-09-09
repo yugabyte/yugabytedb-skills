@@ -9,7 +9,7 @@ description: Use when provisioning, managing, or troubleshooting YugabyteDB univ
 - `references/crd-examples.md` — complete YAML examples for every CRD
 - `references/workflows.md` — end-to-end provisioning, upgrade, backup, and DR workflows
 - `references/kubeconfig-secrets.md` — create and rotate kubeconfig secrets for multi-cluster providers. **Always follow this guidance; do not create generic kubeconfig secrets.**
-- `references/multi-cluster-service-mesh.md` — Helm overrides and pod address templates for Istio and Cilium
+- `references/multi-cluster.md` — Helm overrides and pod address templates for Istio and Cilium
 
 **Note:** This skill covers the YBA Kubernetes Operator (commercial). It does not fully apply to the YugabyteDB OSS Kubernetes Operator, which has fewer CRDs and features.
 
