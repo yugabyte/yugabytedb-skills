@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -557,6 +558,76 @@ class FenceIndentationTests(unittest.TestCase):
         inside, unclosed = self.fmap("text\n\n\t```\n\tcode\n")
         self.assertIsNone(unclosed)
         self.assertFalse(any(inside))
+
+
+class DocumentationDriftTests(unittest.TestCase):
+    """AGENTS.md documents what the checker does; these fail when they diverge.
+
+    Every round of review on this repository has turned up at least one place
+    where the prose and the code disagreed after a behaviour change. The prose
+    is what contributors read, so the disagreement is the defect. These assert
+    the parts that can be compared mechanically.
+    """
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.agents = (cls.ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        cls.review = (cls.ROOT / "REVIEW.md").read_text(encoding="utf-8")
+        cls.source = (cls.ROOT / "scripts" / "check_skills.py").read_text(encoding="utf-8")
+
+    def row(self, group: str) -> str:
+        """The `| <group> | … |` row of the rules table in AGENTS.md."""
+        for line in self.agents.split("\n"):
+            if line.startswith(f"| {group} |"):
+                return line
+        self.fail(f"AGENTS.md has no '{group}' row in the rules table")
+
+    def test_rule_codes_named_in_docs_are_codes_the_checker_emits(self):
+        emitted = set(re.findall(r'"([A-Z]{2,4}\d{3})"', self.source))
+        self.assertTrue(emitted, "no rule codes found in check_skills.py")
+        cited = set(re.findall(r"\b([A-Z]{2,4}\d{3})\b", self.agents + self.review))
+        self.assertEqual(cited - emitted, set(),
+                         "docs name rule codes the checker cannot emit")
+
+    def test_size_budgets_in_agents_md_match_the_code(self):
+        row = self.row("Size")
+        for value in (check_skills.SKILL_MD_MAX_LINES,
+                      check_skills.SKILL_MD_WARN_LINES,
+                      check_skills.SKILL_MD_WARN_WORDS,
+                      check_skills.REFERENCE_WARN_LINES):
+            self.assertIn(str(value), row,
+                          f"the Size row does not mention the budget {value}")
+
+    def test_size_budgets_in_review_md_match_the_code(self):
+        for value in (check_skills.SKILL_MD_MAX_LINES,
+                      check_skills.SKILL_MD_WARN_LINES,
+                      check_skills.REFERENCE_WARN_LINES):
+            self.assertIn(str(value), self.review,
+                          f"REVIEW.md does not mention the budget {value}")
+
+    def test_frontmatter_limits_in_agents_md_match_the_code(self):
+        row = self.row("Frontmatter")
+        for value in (check_skills.NAME_MAX,
+                      check_skills.DESCRIPTION_MAX,
+                      check_skills.DESCRIPTION_MIN):
+            self.assertIn(str(value), row,
+                          f"the Frontmatter row does not mention the limit {value}")
+
+    def test_spec_fields_listed_in_agents_md_match_the_code(self):
+        row = self.row("Frontmatter")
+        listed = re.search(r"spec defines \(([^)]*)\)", row)
+        self.assertIsNotNone(listed, "the Frontmatter row does not list the spec fields")
+        names = set(re.findall(r"`([^`]+)`", listed.group(1)))
+        self.assertEqual(names, set(check_skills.SPEC_FIELDS))
+
+    def test_pin_shape_count_in_agents_md_matches_the_code(self):
+        row = self.row("Versions")
+        words = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+        found = re.search(r"\b(%s)\b pin shapes" % "|".join(words), row)
+        self.assertIsNotNone(found, "the Versions row does not count the pin shapes")
+        self.assertEqual(words[found.group(1)], len(check_skills.PIN_PATTERNS))
 
 
 if __name__ == "__main__":
