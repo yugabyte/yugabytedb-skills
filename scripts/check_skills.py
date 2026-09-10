@@ -80,7 +80,9 @@ PIN_PATTERNS = [
     re.compile(r"<version>\s*\d[^<]*</version>"),
     re.compile(r'^\s*[\w\-]+\s*=\s*"\d+\.\d+[^"]*"\s*(#.*)?$'),   # Cargo / Terraform
     re.compile(r":\d+\.\d+(\.\d+)?[\w.-]*-yb-\d"),                # Maven coordinate
-    re.compile(r'"version"\s*:\s*"[\^~]?\d+\.\d+\.\d+'),           # package.json
+    # package.json: an exact pin only. `^`/`~` are compatibility ranges, which
+    # this rule deliberately allows, so they must not match here.
+    re.compile(r'"version"\s*:\s*"\d+\.\d+\.\d+'),
 ]
 PRODUCT_RELEASE = re.compile(r"\b20\d\d\.\d+(\.\d+){0,2}(-b\d+)?\b")
 # IPv4 addresses and CIDR blocks look like versions to the patterns above.
@@ -431,7 +433,6 @@ class Checker:
         agents = self.read(self.root / "AGENTS.md") if (self.root / "AGENTS.md").exists() else ""
 
         manifest = json.loads(self.read(manifest_path)) if manifest_path.exists() else {"plugins": []}
-        plugins = {p["name"]: p for p in manifest.get("plugins", [])}
         plugin_dirs = {Path(p["skills"][0]).name: p for p in manifest.get("plugins", []) if p.get("skills")}
 
         skill_dirs = sorted(d for d in skills_dir.iterdir() if d.is_dir()) if skills_dir.exists() else []
@@ -460,10 +461,16 @@ class Checker:
         for rule, line_no, msg in problems:
             self.add(rule, "ERROR", skill_md, line_no, msg)
         bad_lines = {line_no for _, line_no, _ in problems}
+        # Only a decode failure makes the values untrustworthy. FM008 (an unknown
+        # key) says nothing about whether name/description decoded, so it must not
+        # suppress the checks that read them.
+        decode_failed = any(rule in ("FM001", "FM007") for rule, _, _ in problems)
         if not fm and not problems:
             # Distinguish "no block at all" from "block present but empty" — the
             # fix differs, and frontmatter() returns the same empty result for both.
-            if text.split("\n", 1)[0].strip() == "---":
+            # Match frontmatter()'s own column-0 test so an indented `---` is
+            # reported as "no block" rather than "empty block".
+            if text.split("\n", 1)[0].rstrip() == "---":
                 self.add("FM002", "ERROR", skill_md, 1,
                          "frontmatter block is empty (needs 'name' and 'description')")
             else:
@@ -474,7 +481,7 @@ class Checker:
             self.add("FM002", "ERROR", skill_md, 1, "frontmatter has no 'name'")
         if fm and not desc and where.get("description") not in bad_lines:
             self.add("FM002", "ERROR", skill_md, 1, "frontmatter has no 'description'")
-        if name:
+        if name and not decode_failed:
             if name != d.name:
                 self.add("FM003", "ERROR", skill_md, where.get("name"),
                          f"frontmatter name '{name}' != directory '{d.name}'")
@@ -488,7 +495,7 @@ class Checker:
                 self.add("DUP001", "ERROR", skill_md, where.get("name"),
                          f"name '{name}' is also used by {names_seen[name]}")
             names_seen[name] = rel_dir
-        if desc:
+        if desc and not decode_failed:
             if len(desc) > DESCRIPTION_MAX:
                 self.add("FM005", "ERROR", skill_md, where.get("description"),
                          f"description is {len(desc)} chars (max {DESCRIPTION_MAX})")
@@ -509,7 +516,8 @@ class Checker:
             # a block with FM001/FM007 problems must be fixed first, so skip the
             # value-comparison checks (and their "run --fix-descriptions" advice,
             # which the fixer would decline anyway) rather than act on garbage.
-            if not problems:
+            # An unknown key (FM008) does not make them untrustworthy.
+            if not decode_failed:
                 if name and plugin["name"] != name:
                     self.add("MP003", "ERROR", ".claude-plugin/marketplace.json", None,
                              f"plugin name '{plugin['name']}' != frontmatter name '{name}' ({rel_dir})")
@@ -610,8 +618,10 @@ class Checker:
             if not skill_md.exists():
                 continue
             fm, _, problems = self.frontmatter(self.read(skill_md))
-            if problems:
-                continue  # never write a value the parser could not decode
+            if any(rule in ("FM001", "FM007") for rule, _, _ in problems):
+                continue  # never write a value the parser could not decode. An
+                          # unknown key (FM008) leaves description decodable, so
+                          # it must not silently turn this into a no-op.
             desc = (fm.get("description") or "").strip()
             if desc and p.get("description", "").strip() != desc:
                 p["description"] = desc

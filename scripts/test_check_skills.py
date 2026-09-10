@@ -316,6 +316,16 @@ Done.
         md003 = [f for f in self.check().findings if f.rule == "MD003"]
         self.assertEqual([f.line for f in md003], [self.SKILL.count("\n")])
 
+    def test_npm_compatibility_ranges_are_not_flagged(self):
+        # The documented rule allows ^ and ~ ranges; the package.json pattern used
+        # to match them, contradicting it.
+        self.skill.write_text(self.SKILL + '\n```json\n{"version": "^8.11.0"}\n```\n')
+        self.assertNotIn("VP001", self.rules(self.check(), "WARN"))
+
+    def test_npm_exact_pin_still_warns(self):
+        self.skill.write_text(self.SKILL + '\n```json\n{"version": "8.11.0"}\n```\n')
+        self.assertIn("VP001", self.rules(self.check(), "WARN"))
+
     def test_version_pin_warns(self):
         self.skill.write_text(self.SKILL + "\n```bash\npip install psycopg==3.2.1\n```\n")
         self.assertIn("VP001", self.rules(self.check(), "WARN"))
@@ -389,6 +399,44 @@ Done.
         # example, not a pointer: it must not fail CI.
         self.skill.write_text(self.SKILL + "\n```markdown\n- `references/example.md` — illustration\n```\n")
         self.assertNotIn("RF001", self.rules(self.check(), "ERROR"))
+
+    def test_unknown_key_does_not_suppress_manifest_sync_or_the_fixer(self):
+        # FM008 says nothing about whether name/description decoded, so one typo'd
+        # key must not silence MP004 or turn --fix-descriptions into a no-op.
+        self.skill.write_text(self.SKILL.replace(
+            'name: "demo-skill"', 'name: "demo-skill"\nauthor: someone'))
+        self.write_manifest("stale")
+        errors = self.rules(self.check(), "ERROR")
+        self.assertIn("FM008", errors)
+        self.assertIn("MP004", errors)
+        self.assertEqual(Checker(self.root).fix_descriptions(), 1)
+
+    def test_decode_failure_does_suppress_value_checks(self):
+        # The converse, and what the docstring promises: when the block did not
+        # decode, the checks that read name/description stand down.
+        lines = self.SKILL.split("\n")
+        del lines[[i for i, l in enumerate(lines) if l.strip() == "---"][1]]
+        self.skill.write_text("\n".join(lines))
+        self.write_manifest("stale")
+        errors = self.rules(self.check(), "ERROR")
+        self.assertIn("FM001", errors)
+        for suppressed in ("FM003", "MP003", "MP004"):
+            self.assertNotIn(suppressed, errors)
+        self.assertEqual(Checker(self.root).fix_descriptions(), 0)
+
+    def test_duplicate_name_does_not_also_raise_a_misleading_fm003(self):
+        # FM007 already says the key is duplicated; comparing whichever value came
+        # last against the directory would be a second, misleading error.
+        self.skill.write_text(self.SKILL.replace(
+            'name: "demo-skill"', 'name: "demo-skill"\nname: something-else'))
+        errors = self.rules(self.check(), "ERROR")
+        self.assertIn("FM007", errors)
+        self.assertNotIn("FM003", errors)
+
+    def test_indented_opener_is_reported_as_no_block_not_empty_block(self):
+        self.skill.write_text("  ---\nname: demo-skill\n  ---\n\n# Demo\n")
+        msgs = [f.msg for f in self.check().findings if f.rule in ("FM001", "FM002")]
+        self.assertTrue(any("no YAML frontmatter block" in m for m in msgs), msgs)
 
     def test_baseline_entry_without_rule_is_cfg001(self):
         (self.root / ".skills-lint.json").write_text(
