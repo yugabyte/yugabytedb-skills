@@ -22,13 +22,13 @@ Two failure modes are worth naming because both have happened here:
 
 ## Conventions the checker already enforces — do not re-report
 
-`python3 scripts/check_skills.py` runs in CI on every PR and covers: frontmatter validity and manifest/README sync, size budgets, resolution of `references/…` paths **named in `SKILL.md`** (links between reference files are not checked), code-fence matching, and exact version pins. If a finding is one the checker would catch, the checker will catch it. Report the rule being *wrong* if it is, not the individual instance.
+`python3 scripts/check_skills.py` runs in CI on every PR and covers: frontmatter validity and manifest/README sync, size budgets, resolution of `references/…` paths **named in `SKILL.md`** as a markdown link or a backtick-wrapped mention, **outside fenced code** (links between reference files are not checked, and a path named only inside a fence — as `yba-terraform/SKILL.md` does in its stage diagram — is not resolved), code-fence matching, and exact version pins. If a finding is one the checker would catch, the checker will catch it. Report the rule being *wrong* if it is, not the individual instance.
 
 Rules that regularly get misread:
 
 - **Size warnings are expected, not failures.** `SKILL.md` over 400 lines and reference files over 600 lines warn; only over 500 lines errors. Several files sit in the warning band deliberately. CI does not run `--strict`, so warnings do not fail the build.
 - **Version pins.** The rule forbids pinning a *dependency package whose newest release is the one you want*. It does not touch compatibility constraints (`>=`, `~>`, `^`) or **calendar-style** YugabyteDB releases such as `2024.2.1.0-b1`, in payloads or in commands. Two limits worth knowing before reporting one: the exemption is calendar-style only, so a 2.x release like `2.20.7.0-b1` in a pin-shaped position does warn and is meant to be baselined; and the scan deliberately covers fenced code, because that is where `pip install x==1.2.3` lives.
-- **References one level deep** applies to *new* reference sets. Inside the `yba-api` and `yba-terraform` sets, reference files link to their siblings today and are grandfathered; `yba-terraform` does so deliberately as a two-stage workflow. Links between different skills' reference sets do not exist here — do not report them as the grandfathered case.
+- **References one level deep** applies to *new* reference sets. Three sets already point a reference at a sibling and are grandfathered: `yba-api`, `yba-terraform` (deliberately, as a two-stage workflow) and `yb-k8s-operator` (`workflows.md` → `kubeconfig-secrets.md`). `AGENTS.md` carries the full list. Links between different skills' reference sets do not exist here — do not report them as the grandfathered case.
 
 Known exceptions live in `.skills-lint.json`, each with a stated reason, and are printed as `IGNORED` rather than hidden. `skills/explain_plan_analyzer/` is deliberately unregistered pending a register-vs-remove decision.
 
