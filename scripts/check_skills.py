@@ -42,7 +42,13 @@ KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 # Frontmatter: `key: value` or `key:` at column 0 (YAML requires whitespace after the colon).
 KEY_LINE = re.compile(r"^([A-Za-z_][\w-]*):(?:[ \t]+(.*))?$")
 BLOCK_HEADER = re.compile(r"^([|>])([1-9+-]{0,2})[ \t]*(#.*)?$")
-UNSUPPORTED_SCALAR_START = ("[", "{", "&", "*", "!", "%", "@", "`")
+# A flow collection is a structured value this subset does not decode — the same
+# situation as a block mapping/sequence, so it is skipped rather than reported.
+# `allowed-tools: [Read, Grep]` is the natural YAML for a field the spec defines.
+FLOW_COLLECTION_START = ("[", "{")
+# Anchors, aliases, tags and reserved indicators: exotic enough in frontmatter
+# that seeing one almost certainly means a mistake.
+UNSUPPORTED_SCALAR_START = ("&", "*", "!", "%", "@", "`")
 # Top-level frontmatter fields the Agent Skills specification defines. A key
 # outside this set is either a typo or body text absorbed because the block is
 # missing its closing --- (FM008); per the spec, extra data belongs in metadata.
@@ -74,7 +80,9 @@ PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\bTBD\b|\bFIXME\b|\bTODO\b|lorem ipsum"
 USAGE_HINT = re.compile(r"\buse (when|this skill|for)\b|\btriggers?\b|\bwhen\b", re.I)
 
 # Dependency pins we do not want in skills (they go stale). Product release
-# numbers such as 2024.2.1.0-b1 inside example payloads are allowed.
+# numbers are exempted by PRODUCT_RELEASE below, but only calendar-style ones
+# (2024.2.1.0-b1) and anywhere on the line, not just in example payloads — a 2.x
+# release in a pin-shaped position still warns and is meant to be baselined.
 PIN_PATTERNS = [
     re.compile(r"pip install\s+[\w\-\[\],]+==\s*\d"),
     re.compile(r"<version>\s*\d[^<]*</version>"),
@@ -169,7 +177,10 @@ class Checker:
         the way the platform's own parser does, and FM008 catches the absorbed
         case semantically — body lines like `Status: ready` are not spec fields.
 
-        Callers must not act on values from a block that has problems.
+        Callers must not act on values from a block reporting FM001 or FM007 —
+        those are the decode failures, and the values are then unreliable. FM008
+        is not one: an unknown key leaves `name` and `description` decoded, so it
+        must not stand down the checks that read them.
         """
         lines = text.split("\n")
         # Both delimiters sit at column 0; an indented `---` is content, not a
@@ -244,6 +255,13 @@ class Checker:
             return Checker._block_scalar(lines, i, m.group(1), m.group(2), end)
         if rest[0] in "'\"":
             return Checker._quoted_scalar(lines, i, rest, end)
+        if rest[0] in FLOW_COLLECTION_START:
+            # Skip it, and any continuation lines, the way a block collection is
+            # skipped: the value is structured, not undecodable.
+            j = i + 1
+            while j < end and (not lines[j].strip() or lines[j][0] in " \t"):
+                j += 1
+            return None, j, None
         if rest[0] in UNSUPPORTED_SCALAR_START or rest[:2] in ("- ", "? ", ": ") or rest in ("-", "?", ":"):
             return None, i + 1, f"unsupported YAML syntax: {rest[:40]}"
         value = Checker._strip_comment(rest)

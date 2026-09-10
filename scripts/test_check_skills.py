@@ -115,6 +115,21 @@ class FrontmatterTests(unittest.TestCase):
         _, _, problems = self.fm("---\nname: x\ndescription: d\nauthor: someone\n---\n")
         self.assertTrue(any(r == "FM008" and "author" in msg for r, _, msg in problems), problems)
 
+    def test_flow_collections_are_skipped_not_rejected(self):
+        # `allowed-tools: [Read, Grep]` is valid YAML in a field the spec defines.
+        # Rejecting it would also set decode_failed and stand down the manifest
+        # checks, so a stale description would go unreported behind a parser error.
+        for value in ("[Read, Grep]", "{author: x}"):
+            with self.subTest(value=value):
+                _, _, problems = self.fm(
+                    "---\nname: x\ndescription: Use when checking flow collections parse.\n"
+                    "allowed-tools: " + value + "\n---\n")
+                self.assertEqual(problems, [])
+
+    def test_anchors_and_tags_are_still_rejected(self):
+        _, _, problems = self.fm("---\nname: x\ndescription: d\nmetadata: &anchor\n---\n")
+        self.assertTrue(any(r == "FM007" for r, _, _ in problems), problems)
+
     def test_optional_spec_fields_are_accepted(self):
         _, _, problems = self.fm(
             "---\nname: x\ndescription: d\nlicense: Apache-2.0\ncompatibility: Requires git\n"
@@ -150,9 +165,12 @@ class FrontmatterTests(unittest.TestCase):
         self.assertEqual([r for r, _, _ in problems], ["FM007"])
         self.assertEqual(problems[0][1], 3)
 
-    def test_flow_sequence_is_unsupported(self):
-        _, _, problems = self.fm("---\ndescription: [flow, seq]\n---\n")
-        self.assertTrue(any(r == "FM007" and "unsupported" in msg for r, _, msg in problems))
+    def test_flow_sequence_is_skipped_like_a_block_collection(self):
+        # Not decoded, but not an error either: it is a structured value, the same
+        # case as a block mapping. The value comes back None and nothing is raised.
+        fields, _, problems = self.fm("---\ndescription: [flow, seq]\n---\n")
+        self.assertEqual(problems, [])
+        self.assertIsNone(fields["description"])
 
     def test_unterminated_quote_is_fm007(self):
         _, _, problems = self.fm('---\ndescription: "never closed\n---\n')

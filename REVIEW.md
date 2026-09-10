@@ -22,7 +22,7 @@ Two failure modes are worth naming because both have happened here:
 
 ## Conventions the checker already enforces — do not re-report
 
-`python3 scripts/check_skills.py` runs in CI on every PR and covers: frontmatter validity and manifest/README sync, size budgets, reference-link resolution, code-fence matching, and exact version pins. If a finding is one the checker would catch, the checker will catch it. Report the rule being *wrong* if it is, not the individual instance.
+`python3 scripts/check_skills.py` runs in CI on every PR and covers: frontmatter validity and manifest/README sync, size budgets, resolution of `references/…` paths **named in `SKILL.md`** (links between reference files are not checked), code-fence matching, and exact version pins. If a finding is one the checker would catch, the checker will catch it. Report the rule being *wrong* if it is, not the individual instance.
 
 Rules that regularly get misread:
 
