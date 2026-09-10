@@ -46,6 +46,9 @@ BLOCK_HEADER = re.compile(r"^([|>])([1-9+-]{0,2})[ \t]*(#.*)?$")
 # situation as a block mapping/sequence, so it is skipped rather than reported.
 # `allowed-tools: [Read, Grep]` is the natural YAML for a field the spec defines.
 FLOW_COLLECTION_START = ("[", "{")
+# A block sequence entry. YAML lets these sit at the parent key's indentation,
+# so they are part of the value even when they start at column 0.
+SEQUENCE_ITEM = re.compile(r"^- (?!-)|^-$")
 # Anchors, aliases, tags and reserved indicators: exotic enough in frontmatter
 # that seeing one almost certainly means a mistake.
 UNSUPPORTED_SCALAR_START = ("&", "*", "!", "%", "@", "`")
@@ -243,10 +246,14 @@ class Checker:
         end = len(lines) if end is None else end
         rest = (rest or "").strip()
         if not rest or rest.startswith("#"):
-            # Null, or a nested mapping / sequence on the following indented lines.
-            # Blank lines inside the nested block are legal; column-0 content ends it.
+            # Null, or a nested mapping / sequence on the following lines. Blank
+            # lines inside the block are legal. A block sequence may sit at the
+            # key's own indentation ("allowed-tools:" then "- Read" at column 0),
+            # which YAML allows and which must be skipped like any other
+            # structured value rather than failing KEY_LINE as undecodable.
             j, nested = i + 1, False
-            while j < end and (not lines[j].strip() or lines[j][0] in " \t"):
+            while j < end and (not lines[j].strip() or lines[j][0] in " \t"
+                               or SEQUENCE_ITEM.match(lines[j])):
                 nested = nested or bool(lines[j].strip())
                 j += 1
             return (None if nested else ""), j, None
@@ -560,27 +567,38 @@ class Checker:
         if plugin is None:
             self.add("MP001", "ERROR", rel_dir, None,
                      "not registered in .claude-plugin/marketplace.json")
+        elif len(plugin.get("skills") or []) > 1:
+            # MP005 already reports this entry's shape, once, against the
+            # manifest. Its single name and description cannot be compared
+            # against several skill directories, and --fix-descriptions writes
+            # only skills[0], so MP003/MP004 here would be advice the fixer
+            # cannot act on and RD001/RD002 would repeat one name per directory.
+            pass
         else:
+            # A hand-edited entry may be missing "name"; MP003 then reports the
+            # mismatch instead of the run dying on a KeyError and losing every
+            # other finding.
+            plugin_name = plugin.get("name") or "<entry has no name>"
             # name/desc are only trustworthy when the frontmatter decoded cleanly;
             # a block with FM001/FM007 problems must be fixed first, so skip the
             # value-comparison checks (and their "run --fix-descriptions" advice,
             # which the fixer would decline anyway) rather than act on garbage.
             # An unknown key (FM008) does not make them untrustworthy.
             if not decode_failed:
-                if name and plugin["name"] != name:
+                if name and plugin_name != name:
                     self.add("MP003", "ERROR", ".claude-plugin/marketplace.json", None,
-                             f"plugin name '{plugin['name']}' != frontmatter name '{name}' ({rel_dir})")
+                             f"plugin name '{plugin_name}' != frontmatter name '{name}' ({rel_dir})")
                 if desc and plugin.get("description", "").strip() != desc:
                     self.add("MP004", "ERROR", ".claude-plugin/marketplace.json", None,
-                             f"description for '{plugin['name']}' differs from SKILL.md frontmatter "
+                             f"description for '{plugin_name}' differs from SKILL.md frontmatter "
                              f"(run with --fix-descriptions)")
             # -- README coverage (only for registered skills)
-            if f"|`{plugin['name']}`|" not in readme.replace(" ", ""):
+            if f"|`{plugin_name}`|" not in readme.replace(" ", ""):
                 self.add("RD001", "ERROR", "README.md", None,
-                         f"no 'Available Skills' table row for `{plugin['name']}`")
-            if f"-s {plugin['name']}" not in readme:
+                         f"no 'Available Skills' table row for `{plugin_name}`")
+            if f"-s {plugin_name}" not in readme:
                 self.add("RD002", "WARN", "README.md", None,
-                         f"no 'npx skills add ... -s {plugin['name']}' install line")
+                         f"no 'npx skills add ... -s {plugin_name}' install line")
 
         # -- AGENTS.md structure tree
         if agents and d.name + "/" not in agents:

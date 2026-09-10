@@ -166,6 +166,23 @@ class FrontmatterTests(unittest.TestCase):
         self.assertEqual([r for r, _, _ in problems], ["FM007"])
         self.assertEqual(problems[0][1], 3)
 
+    def test_column_zero_block_sequence_is_skipped_not_rejected(self):
+        # YAML lets a block sequence sit at the parent key's indentation. This
+        # used to fail KEY_LINE on "- Read" and report FM007, which sets
+        # decode_failed and silences the manifest checks and the fixer.
+        fm, _, problems = Checker.frontmatter(
+            "---\nname: demo\nallowed-tools:\n- Read\n- Grep\n"
+            "description: Demo. Use when checking sequences. Triggers on demo.\n---\n")
+        self.assertEqual(problems, [])
+        self.assertEqual(fm.get("name"), "demo")
+        self.assertIn("description", fm)
+
+    def test_column_zero_sequence_does_not_swallow_the_terminator(self):
+        fm, _, problems = Checker.frontmatter(
+            "---\nallowed-tools:\n- Read\n---\n\n- a body bullet\n")
+        self.assertEqual([r for r, _, _ in problems if r == "FM007"], [])
+        self.assertNotIn("a body bullet", str(fm))
+
     def test_flow_sequence_is_skipped_like_a_block_collection(self):
         # Not decoded, but not an error either: it is a structured value, the same
         # case as a block mapping. The value comes back None and nothing is raised.
@@ -590,6 +607,29 @@ class ManifestShapeTests(unittest.TestCase):
         rules = self.run_checker(tmp)
         self.assertNotIn("MP001", rules, "the second directory was treated as unregistered")
         self.assertIn("MP005", rules, "a multi-skill entry should be reported")
+
+    def test_multi_skill_entry_reports_only_mp005_not_a_half_comparison(self):
+        # The entry's single name/description cannot be compared against two
+        # skills, and --fix-descriptions writes only skills[0], so MP003/MP004
+        # here would be advice the fixer cannot act on.
+        tmp = self.build(["alpha", "beta"])
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"name": "alpha",
+                          "description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying manifest shapes. Triggers on alpha.",
+                          "skills": ["./skills/alpha", "./skills/beta"]}]}), encoding="utf-8")
+        rules = self.run_checker(tmp)
+        self.assertIn("MP005", rules)
+        self.assertEqual(rules & {"MP003", "MP004"}, set(),
+                         "the entry was compared against a skill it does not name")
+
+    def test_entry_without_a_name_reports_instead_of_crashing(self):
+        tmp = self.build(["alpha"])
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying manifest shapes. Triggers on alpha.",
+                          "skills": ["./skills/alpha"]}]}), encoding="utf-8")
+        self.assertIn("MP003", self.run_checker(tmp))
 
     def test_one_directory_per_entry_does_not_raise_mp005(self):
         tmp = self.build(["alpha"])
