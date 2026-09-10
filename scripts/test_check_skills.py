@@ -166,6 +166,15 @@ class FrontmatterTests(unittest.TestCase):
         self.assertEqual([r for r, _, _ in problems], ["FM007"])
         self.assertEqual(problems[0][1], 3)
 
+    def test_comment_lines_inside_the_block_are_legal(self):
+        # A comment used to fail KEY_LINE and land as FM007, which sets
+        # decode_failed and stands down the value checks and the fixer.
+        fm, _, problems = Checker.frontmatter(
+            "---\n# which skill this is\nname: demo\n"
+            "description: Demo. Use when checking comments. Triggers on demo.\n---\n")
+        self.assertEqual(problems, [])
+        self.assertEqual(fm.get("name"), "demo")
+
     def test_column_zero_block_sequence_is_skipped_not_rejected(self):
         # YAML lets a block sequence sit at the parent key's indentation. This
         # used to fail KEY_LINE on "- Read" and report FM007, which sets
@@ -631,6 +640,31 @@ class ManifestShapeTests(unittest.TestCase):
                           "skills": ["./skills/alpha"]}]}), encoding="utf-8")
         self.assertIn("MP003", self.run_checker(tmp))
 
+    def test_nameless_entry_pointing_at_a_missing_directory_does_not_crash(self):
+        # MP002's branch is only reached when the directory is absent, so the
+        # earlier nameless-entry test never executed it.
+        tmp = self.build(["alpha"])
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying manifest shapes. Triggers on alpha.",
+                          "skills": ["./skills/alpha"]},
+                         {"skills": ["./skills/gone"]}]}), encoding="utf-8")
+        self.assertIn("MP002", self.run_checker(tmp))
+
+    def test_entry_with_null_skills_does_not_crash(self):
+        tmp = self.build(["alpha"])
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"name": "alpha",
+                          "description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying manifest shapes. Triggers on alpha.",
+                          "skills": ["./skills/alpha"]},
+                         {"name": "broken", "skills": None}]}), encoding="utf-8")
+        # The point is that run() completes: a null "skills" must not raise
+        # before the findings already gathered can be reported.
+        rules = self.run_checker(tmp)
+        self.assertIsInstance(rules, set)
+        self.assertNotIn("MP002", rules)
+
     def test_one_directory_per_entry_does_not_raise_mp005(self):
         tmp = self.build(["alpha"])
         (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
@@ -672,6 +706,15 @@ class ReferenceLinkingTests(unittest.TestCase):
         self.assertIn("RF001", {f.rule for f in findings})
         self.assertIn("RF002", {f.rule for f in findings},
                       "a broken link suppressed the unlinked-reference warning")
+
+    def test_dot_slash_relative_link_resolves_and_counts_as_linked(self):
+        findings = self.build("See [notes](./references/notes.md).", ["notes.md"])
+        self.assertEqual({f.rule for f in findings} & {"RF001", "RF002"}, set(),
+                         "a ./references/ link was neither resolved nor counted")
+
+    def test_broken_dot_slash_link_is_rf001(self):
+        findings = self.build("See [gone](./references/gone.md).", ["notes.md"])
+        self.assertIn("RF001", {f.rule for f in findings})
 
     def test_working_link_marks_the_file_as_linked(self):
         findings = self.build("See [notes](references/notes.md).", ["notes.md"])

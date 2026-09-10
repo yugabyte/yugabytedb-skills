@@ -74,7 +74,9 @@ DOUBLE_ESCAPES = {
 FENCE_OPEN = re.compile(r"^ *(`{3,}|~{3,})(.*)$")
 # List item marker with its content indent: leading spaces, marker, spaces before the content.
 LIST_ITEM = re.compile(r"^( *)([-*+]|\d{1,9}[.)])( +)(?=\S)")
-REF_LINK = re.compile(r"\]\((references/[^)#\s]+)")
+# A markdown link to a reference, with or without the "./" a relative link may
+# carry. Both forms must resolve and both must count as linking the file.
+REF_LINK = re.compile(r"\]\(\.?/?(references/[^)#\s]+)")
 # A backtick-wrapped reference path, e.g. `references/foo.md` in the "This skill
 # includes" list. RF001 checks these resolve too: a bare mention of a renamed
 # file tells the agent up front to open a path that does not exist.
@@ -201,8 +203,11 @@ class Checker:
         i = 1
         while i < end:
             stripped = lines[i].strip()
-            if not stripped:
-                i += 1                      # blank lines are legal inside the block
+            if not stripped or stripped.startswith("#"):
+                # Blank and comment lines are legal inside the block. Treating a
+                # comment as undecodable would set decode_failed and stand down
+                # the value checks over input YAML reads without complaint.
+                i += 1
                 continue
             m = KEY_LINE.match(lines[i])
             if not m:
@@ -482,10 +487,13 @@ class Checker:
 
         # manifest entries pointing at missing directories
         for p in manifest.get("plugins", []):
-            for s in p.get("skills", []):
+            # `or []` rather than a default: "skills": null is what a hand-edited
+            # manifest produces, and iterating None raises before any finding is
+            # reported. Same reason `name` is read with .get() here.
+            for s in p.get("skills") or []:
                 if not (self.root / s).is_dir():
                     self.add("MP002", "ERROR", ".claude-plugin/marketplace.json", None,
-                             f"plugin '{p['name']}' points at missing directory {s}")
+                             f"plugin '{p.get('name')}' points at missing directory {s}")
 
     @staticmethod
     def structure_tree(agents: str) -> str:
