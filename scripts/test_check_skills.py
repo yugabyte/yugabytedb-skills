@@ -69,17 +69,27 @@ class FrontmatterTests(unittest.TestCase):
         self.assertLessEqual(sum(1 for r, _, _ in problems if r == "FM007"), 1)
         self.assertEqual(fields["name"], "ysql")
 
-    def test_missing_terminator_with_thematic_break_in_body_is_flagged(self):
-        # An unterminated block whose body has a `---` thematic break must not be
-        # reported closed: the first '---' is the terminator, and the heading/prose
-        # above it fails to decode (FM007) rather than being silently absorbed.
+    def test_missing_terminator_with_thematic_break_in_body_is_fm001(self):
+        # The block ends at the blank line, so the later `---` thematic break is
+        # body, not the terminator: FM001, and no body text in the fields.
         text = ("---\nname: ysql\ndescription: x\n\n"
                 "# YugabyteDB YSQL Best Practices\n\n"
                 "Some intro prose without a colon.\n\n---\nmore body\n")
         fields, _, problems = self.fm(text)
-        rules = [r for r, _, _ in problems]
-        self.assertIn("FM007", rules)
-        self.assertNotEqual(problems, [])
+        self.assertIn("FM001", [r for r, _, _ in problems])
+        self.assertEqual(set(fields), {"name", "description"})
+
+    def test_missing_terminator_with_key_shaped_body_is_fm001(self):
+        # The shape the scan-to-the-next-`---` rule got wrong: every body line up
+        # to the thematic break is `key: value`, so nothing fails to decode. The
+        # blank line must still end the block, or body text lands in the fields
+        # and --fix-descriptions writes it into marketplace.json.
+        text = ("---\nname: ysql\ndescription: x\n\n"
+                "Status: ready\nAccept: application/json\n\n---\nmore body\n")
+        fields, _, problems = self.fm(text)
+        self.assertIn("FM001", [r for r, _, _ in problems])
+        self.assertNotIn("Status", fields)
+        self.assertNotIn("Accept", fields)
 
     def test_nested_mapping_is_skipped(self):
         fields, _, problems = self.fm(
@@ -88,11 +98,13 @@ class FrontmatterTests(unittest.TestCase):
         self.assertEqual(fields["description"], "after nested")
         self.assertEqual(problems, [])
 
-    def test_undecodable_line_is_fm007_and_parsing_stops(self):
+    def test_undecodable_line_is_fm007_but_the_block_is_still_closed(self):
+        # A malformed line inside an otherwise terminated block is flagged, and
+        # the scan continues so the real terminator is found (no spurious FM001).
+        # Callers gate on `problems`, so the parsed values are not trusted here.
         fields, _, problems = self.fm("---\nname: ysql\n- not a key\ndescription: after\n---\n")
         self.assertEqual([r for r, _, _ in problems], ["FM007"])
         self.assertEqual(problems[0][1], 3)
-        self.assertNotIn("description", fields)
 
     def test_flow_sequence_is_unsupported(self):
         _, _, problems = self.fm("---\ndescription: [flow, seq]\n---\n")
@@ -301,6 +313,25 @@ Done.
         self.assertNotIn("MP004", errors)
         self.assertNotIn("MP003", errors)
 
+    def test_baseline_entry_without_reason_does_not_crash_or_suppress(self):
+        # An entry with a rule but no reason used to raise KeyError in add() on the
+        # first matching finding, losing the whole report. It must be reported as
+        # CFG001 and must not suppress the finding it names.
+        self.write_manifest("stale")
+        (self.root / ".skills-lint.json").write_text(
+            json.dumps({"ignore": [{"rule": "MP004"}]}))
+        checker = self.check()
+        errors = self.rules(checker, "ERROR")
+        self.assertIn("CFG001", errors)
+        self.assertIn("MP004", errors)
+        self.assertFalse(any(f.rule == "MP004" and f.ignored for f in checker.findings))
+
+    def test_reference_mention_inside_a_fence_is_not_rf001(self):
+        # An illustrative `references/<topic>.md` path inside a fenced block is an
+        # example, not a pointer: it must not fail CI.
+        self.skill.write_text(self.SKILL + "\n```markdown\n- `references/example.md` — illustration\n```\n")
+        self.assertNotIn("RF001", self.rules(self.check(), "ERROR"))
+
     def test_baseline_entry_without_rule_is_cfg001(self):
         (self.root / ".skills-lint.json").write_text(
             json.dumps({"ignore": [{"path": "skills/x", "reason": "no rule key"}]}))
@@ -334,6 +365,16 @@ class StrictYamlTests(unittest.TestCase):
         fields, _, problems = self.fm('---\ndescription: "\\x41\\u00e9\\U0001F600 \\\\ \\" \\t"\n---\n')
         self.assertEqual(problems, [])
         self.assertEqual(fields["description"], 'A\u00e9\U0001F600 \\ " \t')
+
+    def test_yaml_specific_escapes_decode_to_their_codepoints(self):
+        # \N \_ \L \P must decode to U+0085, U+00A0, U+2028, U+2029 — not to a
+        # plain space or the empty string. The table writes them as \u escapes so
+        # this stays reviewable; this test is the guard.
+        for esc, codepoint in (("N", 0x0085), ("_", 0x00A0), ("L", 0x2028), ("P", 0x2029)):
+            with self.subTest(escape=esc):
+                fields, _, problems = self.fm('---\ndescription: "a\\' + esc + 'b"\n---\n')
+                self.assertEqual(problems, [])
+                self.assertEqual(fields["description"], "a" + chr(codepoint) + "b")
 
     def test_short_hex_escape_is_rejected(self):
         _, _, problems = self.fm('---\ndescription: "\\x4"\n---\n')

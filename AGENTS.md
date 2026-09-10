@@ -98,7 +98,7 @@ The [static checks](#static-checks) catch structural problems. The rules here co
 
 - `SKILL.md` is loaded whole once the skill triggers, so every line competes with the user's task. The checker warns at 400 lines and fails at 500; most skills should be shorter.
 - Lead with the decisions that differ from the upstream technology (YSQL: sharding, smart drivers, retries; the operator: CRD shapes, multi-cluster networking). No introductions, no definitions the model already has.
-- Move long code, per-language variants and endpoint catalogues into `references/<topic>.md`, linked directly from `SKILL.md`. Keep new references one level deep — a reference file should not point to another reference file. (The `yba-api` references cross-link each other today; that set is grandfathered, not a pattern to copy.) Put a contents list at the top of any reference longer than about 100 lines so a partial read still shows its scope.
+- Move long code, per-language variants and endpoint catalogues into `references/<topic>.md`, linked directly from `SKILL.md`. Keep new references one level deep — a reference file should not point to another reference file. (The `yba-api` and `yba-terraform` reference sets cross-link each other today — `yba-terraform` deliberately, as a two-stage workflow. Both are grandfathered, not a pattern to copy.) Put a contents list at the top of any reference longer than about 100 lines so a partial read still shows its scope.
 - Split references by domain (`smart-drivers.md`, `retry-patterns.md`), not by size, so the agent loads only the file the task needs.
 
 ### Instructions the agent can act on
@@ -151,7 +151,7 @@ What it enforces (errors fail CI, warnings annotate the PR):
 
 | Group | Rules |
 | --- | --- |
-| Frontmatter | present and closed with `---`; values decoded as YAML scalars (plain, quoted, `|` / `>` block) — anything else is an error; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars; `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill) |
+| Frontmatter | present and closed with `---` (the block ends at the first `---` or the first blank line, so a body thematic break cannot pose as the terminator); values decoded as YAML scalars (plain, quoted, `|` / `>` block) — a nested mapping or sequence is skipped without a finding, anything else that fails to decode is an error; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars; `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill) |
 | Manifest | every `skills/*/` directory is registered in `marketplace.json`; every entry's directory exists; manifest `name` and `description` equal the frontmatter |
 | README | every registered skill has an Available Skills row (error) and an `npx skills add … -s <name>` line (warn) |
 | Size | `SKILL.md` over 500 lines is an error; over 400 lines or 4000 words is a warning; a reference file over 600 lines is a warning |

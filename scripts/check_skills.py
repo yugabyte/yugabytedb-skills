@@ -43,9 +43,18 @@ KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 KEY_LINE = re.compile(r"^([A-Za-z_][\w-]*):(?:[ \t]+(.*))?$")
 BLOCK_HEADER = re.compile(r"^([|>])([1-9+-]{0,2})[ \t]*(#.*)?$")
 UNSUPPORTED_SCALAR_START = ("[", "{", "&", "*", "!", "%", "@", "`")
-DOUBLE_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '"', "/": "/", " ": " ",
-                  "a": "\a", "b": "\b", "e": "\x1b", "f": "\f", "v": "\v", "_": " ",
-                  "N": "", "L": " ", "P": " "}
+DOUBLE_ESCAPES = {
+    # Escapes YAML defines for double-quoted scalars. The last four are written
+    # as \u escapes on purpose: as literal characters they are invisible in a
+    # diff and unreviewable.
+    "0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n",
+    "v": "\v", "f": "\f", "r": "\r", "e": "\x1b", " ": " ", '"': '"',
+    "/": "/", "\\": "\\",
+    "N": "\u0085",  # NEL, next line
+    "_": "\u00a0",  # NBSP, non-breaking space
+    "L": "\u2028",  # LS, line separator
+    "P": "\u2029",  # PS, paragraph separator
+}
 # CommonMark fenced code: a run of 3+ backticks or tildes, then an optional info string.
 # Indentation is checked separately (at most 3 spaces relative to the enclosing list item).
 FENCE_OPEN = re.compile(r"^ *(`{3,}|~{3,})(.*)$")
@@ -95,15 +104,22 @@ class Checker:
         if not cfg.exists():
             return []
         data = json.loads(cfg.read_text(encoding="utf-8"))
-        entries = data.get("ignore", [])
-        for e in entries:
+        valid = []
+        for e in data.get("ignore", []):
+            ok = True
             if not e.get("reason"):
                 self.findings.append(Finding("CFG001", "ERROR", ".skills-lint.json", None,
                                              f"ignore entry {e!r} has no reason"))
+                ok = False
             if not e.get("rule"):
                 self.findings.append(Finding("CFG001", "ERROR", ".skills-lint.json", None,
                                              f"ignore entry {e!r} has no rule (it would match nothing)"))
-        return entries
+                ok = False
+            # An invalid entry must not reach add(): it cannot justify suppressing
+            # anything, and a reason-less one would raise KeyError there.
+            if ok:
+                valid.append(e)
+        return valid
 
     def add(self, rule: str, level: str, path: Path | str, line: int | None, msg: str) -> None:
         rel = str(Path(path).relative_to(self.root)) if isinstance(path, Path) else path
@@ -115,7 +131,7 @@ class Checker:
                 continue
             if e.get("match") and e["match"] not in msg:
                 continue
-            ignored = e["reason"]
+            ignored = e.get("reason")
             break
         self.findings.append(Finding(rule, level, rel, line, msg, ignored))
 
@@ -135,46 +151,51 @@ class Checker:
         None). Problems are (rule, line, message): FM001 when the block has no
         closing `---`, FM007 for a line or value this subset cannot decode.
 
-        The closing `---` is the FIRST line that is exactly `---` after the opener,
-        matching how real frontmatter parsers delimit the block. A later `---`
-        thematic break in the body therefore cannot masquerade as the terminator:
-        an unterminated block whose body contains a thematic break lands on that
-        break, and the body lines above it (a heading, prose) do not decode as
-        `key: value`, so they are reported FM007 rather than silently absorbed.
+        The block is the CONTIGUOUS run of entries starting after the opener: it
+        ends at the first `---` (the terminator) or the first blank line,
+        whichever comes first. Ending on a blank line means the block was never
+        closed, so a later `---` thematic break in the body cannot masquerade as
+        the terminator — not even when the body's own lines are `key: value`
+        shaped (`Status: ready`, `Accept: application/json`), which a
+        scan-to-the-next-`---` would silently absorb into the fields.
         Callers must not act on values from a block that has problems.
         """
         lines = text.split("\n")
         if not lines or lines[0].strip() != "---":
             return {}, {}, []
-        term = next((j for j in range(1, len(lines)) if lines[j].strip() == "---"), None)
-        scan_end = term if term is not None else len(lines)
         fields: dict[str, str | None] = {}
         where: dict[str, int] = {}
         problems: list[tuple[str, int | None, str]] = []
         first_bad: tuple[int, str] | None = None
         i = 1
-        while i < scan_end:
+        while i < len(lines):
             stripped = lines[i].strip()
+            if stripped == "---":
+                break                       # the terminator, ending the block
             if not stripped:
-                i += 1
-                continue
+                break                       # a blank line ends the block; whatever
+                                            # follows is body, not frontmatter
             m = KEY_LINE.match(lines[i])
             if not m:
-                # Not `key: value` (a heading, a thematic break, prose): not
-                # frontmatter. Stop here, as a YAML parser would.
-                first_bad = (i + 1, stripped[:60])
-                break
+                # Flag it, but keep scanning: a malformed line inside an otherwise
+                # properly terminated block should not be mistaken for a missing
+                # terminator.
+                if first_bad is None:
+                    first_bad = (i + 1, stripped[:60])
+                i += 1
+                continue
             key = m.group(1)
             where[key] = i + 1
             value, i, err = Checker._yaml_value(lines, i, m.group(2))
             if err:
                 problems.append(("FM007", where[key], f"'{key}': {err}"))
             fields[key] = value
-        if term is None:
-            problems.append(("FM001", len(text.splitlines()) or 1,
-                             "frontmatter block is not closed (no terminating ---)"))
-        elif first_bad is not None:
+        closed = i < len(lines) and lines[i].strip() == "---"
+        if first_bad is not None:
             problems.append(("FM007", first_bad[0], f"cannot parse frontmatter line: {first_bad[1]}"))
+        if not closed:
+            problems.append(("FM001", (i + 1) if i < len(lines) else (len(text.splitlines()) or 1),
+                             "frontmatter block is not closed (no terminating ---)"))
         return fields, where, problems
 
     @staticmethod
@@ -488,7 +509,10 @@ class Checker:
         # -- references: links resolve, files are linked
         refs_dir = d / "references"
         linked: set[str] = set()
-        for i, line in enumerate(lines, start=1):
+        # Skip fenced code: a `references/<topic>.md` path shown inside a fence is
+        # an illustration, not a pointer, and must not fail CI. MD003 filters the
+        # same way.
+        for i, line in self.outside_fences(text):
             for m in REF_LINK.finditer(line):
                 target = m.group(1)
                 linked.add(Path(target).name)
