@@ -81,6 +81,10 @@ REF_LINK = re.compile(r"\]\(\.?/?(references/[^)#\s]+)")
 # includes" list. RF001 checks these resolve too: a bare mention of a renamed
 # file tells the agent up front to open a path that does not exist.
 REF_MENTION = re.compile(r"`(references/[^`\s]+\.md)`")
+# A bare `<file>.md` naming a file beside the one it appears in, as a markdown
+# link or a backtick mention. Used only inside references/, where a pointer to a
+# sibling is invisible from SKILL.md and so escapes RF001.
+SIBLING_REF = re.compile(r"\]\((\.?/?[\w-]+\.md)\)|`([\w-]+\.md)`")
 PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\bTBD\b|\bFIXME\b|\bTODO\b|lorem ipsum", re.I)
 USAGE_HINT = re.compile(r"\buse (when|this skill|for)\b|\btriggers?\b|\bwhen\b", re.I)
 
@@ -660,6 +664,15 @@ class Checker:
                 if f.name not in linked:
                     self.add("RF002", "WARN", f, None,
                              "reference file is never linked or mentioned from SKILL.md (agents will not find it)")
+                # A reference file pointing at a sibling is grandfathered in a
+                # few sets, but the target still has to exist: a rename here is
+                # invisible from SKILL.md, so nothing else would catch it.
+                for i, line in self.outside_fences(self.read(f)):
+                    for m in SIBLING_REF.finditer(line):
+                        target = (m.group(1) or m.group(2)).lstrip("./")
+                        if target != f.name and not (refs_dir / target).exists():
+                            self.add("RF003", "ERROR", f, i,
+                                     f"sibling reference does not exist: {target}")
                 self.check_markdown(f, is_skill_md=False)
 
         self.check_markdown(skill_md, is_skill_md=True, text=text)

@@ -716,6 +716,32 @@ class ReferenceLinkingTests(unittest.TestCase):
         findings = self.build("See [gone](./references/gone.md).", ["notes.md"])
         self.assertIn("RF001", {f.rule for f in findings})
 
+    def test_broken_sibling_reference_is_rf003(self):
+        # RF001 reads SKILL.md only, so a reference pointing at a renamed
+        # sibling is invisible to it; nothing else would catch the break.
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        skill = tmp / "skills" / "alpha"
+        (skill / "references").mkdir(parents=True)
+        (skill / "references" / "a.md").write_text(
+            "# a\n\nSee [b](b.md) and `gone.md`.\n", encoding="utf-8")
+        (skill / "references" / "b.md").write_text("# b\n", encoding="utf-8")
+        (skill / "SKILL.md").write_text(
+            "---\nname: alpha\ndescription: Demo skill for the checker's own tests. Use when "
+            "verifying sibling references. Triggers on alpha.\n---\n\n"
+            "`references/a.md` and `references/b.md`.\n", encoding="utf-8")
+        (tmp / ".claude-plugin").mkdir()
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"name": "alpha",
+                          "description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying sibling references. Triggers on alpha.",
+                          "skills": ["./skills/alpha"]}]}), encoding="utf-8")
+        c = Checker(tmp)
+        c.run()
+        rf003 = [f for f in c.findings if f.rule == "RF003"]
+        self.assertEqual(len(rf003), 1, [f.msg for f in rf003])
+        self.assertIn("gone.md", rf003[0].msg)
+
     def test_working_link_marks_the_file_as_linked(self):
         findings = self.build("See [notes](references/notes.md).", ["notes.md"])
         self.assertEqual({f.rule for f in findings} & {"RF001", "RF002"}, set())
