@@ -210,6 +210,42 @@ class FrontmatterTests(unittest.TestCase):
         _, _, problems = self.fm("---\nname:ysql\n---\n")
         self.assertTrue(any(r == "FM007" for r, _, _ in problems))
 
+    def test_multiline_scalar_values_match_yaml_folding(self):
+        # Expected values follow YAML 1.2 flow/block folding, independently of
+        # the implementation. The suite itself remains standard-library only.
+        cases = [
+            ('"first\n\n  second"', "first\nsecond"),
+            ("'first\n\n  second'", "first\nsecond"),
+            ('"first  \n  second"', "first second"),
+            ('"connec\\\n  tion"', "connection"),
+            ('"first\\\n\n  second"', "first\nsecond"),
+            ('"first\\ \n  second"', "first  second"),
+            ('"first\\\\\n  second"', "first\\ second"),
+            ("first\n\n  second", "first\nsecond"),
+            ("first\n\n\n  second", "first\n\nsecond"),
+            (">-\n  first\n    indented\n\n  second", "first\n  indented\n\nsecond"),
+            (">-\n  first\n\n    indented\n  second", "first\n\n  indented\nsecond"),
+            (">-\n\n  first", "\nfirst"),
+            ("|+\n\n", "\n\n"),
+        ]
+        for scalar, expected in cases:
+            with self.subTest(scalar=scalar):
+                fields, _, problems = self.fm("---\nname: demo\ndescription: " + scalar + "\n---\n")
+                self.assertEqual(problems, [])
+                self.assertEqual(fields["description"], expected)
+
+    def test_invalid_unicode_is_a_diagnostic(self):
+        for escape in (r"\U00110000", r"\UFFFFFFFF", r"\uD800", r"\uDFFF"):
+            with self.subTest(escape=escape):
+                _, _, problems = self.fm('---\ndescription: "' + escape + '"\n---\n')
+                self.assertIn("FM007", [r for r, _, _ in problems])
+
+    def test_invalid_block_indicators_are_not_silently_decoded(self):
+        for header in (">++", "|22", ">+-", "|--"):
+            with self.subTest(header=header):
+                _, _, problems = self.fm("---\ndescription: " + header + "\n  text\n---\n")
+                self.assertIn("FM007", [r for r, _, _ in problems])
+
 
 class FenceTests(unittest.TestCase):
     def fmap(self, text: str):
@@ -251,6 +287,19 @@ class FenceTests(unittest.TestCase):
     def test_outside_fences_uses_the_same_matching(self):
         outside = [line for _, line in Checker.outside_fences("a\n````\n```\nb\n````\nc")]
         self.assertEqual(outside, ["a", "c"])
+
+    def test_fence_can_start_on_the_list_marker_line(self):
+        for opener, indent in (("- ```python", "  "), ("1. ~~~", "   "),
+                               ("- - ```", "    "), ("-     ```", None)):
+            with self.subTest(opener=opener):
+                if indent is None:
+                    inside, unclosed = self.fmap(opener + "\n      text\n      ```")
+                    self.assertFalse(any(inside))
+                else:
+                    fence = "~~~" if "~~~" in opener else "```"
+                    inside, unclosed = self.fmap(opener + "\n" + indent + "code\n" + indent + fence)
+                    self.assertEqual(inside, [True, True, True])
+                self.assertIsNone(unclosed)
 
 
 class RepoTests(unittest.TestCase):
@@ -306,6 +355,62 @@ Done.
     def rules(checker: Checker, level: str | None = None) -> list[str]:
         return sorted(f.rule for f in checker.findings
                       if not f.ignored and (level is None or f.level == level))
+
+
+    def test_fixer_preserves_correct_multiline_descriptions_and_is_idempotent(self):
+        cases = [
+            ('"Use when writing SQL.\n\n  Preserve this paragraph."',
+             "Use when writing SQL.\nPreserve this paragraph."),
+            ('"Use when writing SQL with a connec\\\n  tion pool."',
+             "Use when writing SQL with a connection pool."),
+            ("Use when writing SQL.\n\n  Preserve this paragraph.",
+             "Use when writing SQL.\nPreserve this paragraph."),
+            (">-\n  Use when writing SQL.\n    indented example\n\n  Another paragraph.",
+             "Use when writing SQL.\n  indented example\n\nAnother paragraph."),
+        ]
+        for scalar, expected in cases:
+            with self.subTest(scalar=scalar):
+                self.skill.write_text('---\nname: demo-skill\ndescription: ' + scalar + '\n---\n# Demo\n')
+                self.write_manifest(expected)
+                original = self.manifest.read_bytes()
+                self.assertEqual(Checker(self.root).fix_descriptions(), 0)
+                self.assertEqual(self.manifest.read_bytes(), original)
+                self.assertEqual(self.rules(self.check(), "ERROR"), [])
+                self.write_manifest("stale")
+                self.assertEqual(Checker(self.root).fix_descriptions(), 1)
+                self.assertEqual(self.manifest_description(), expected)
+                self.assertEqual(Checker(self.root).fix_descriptions(), 0)
+
+    def test_list_fence_filters_placeholder_and_reference_examples(self):
+        self.skill.write_text(self.SKILL + "\n- ```text\n  TODO `references/example.md`\n  ```\n")
+        self.assertEqual(self.rules(self.check()), [])
+
+    def test_invalid_ignore_shapes_report_errors_without_suppressing_findings(self):
+        cases = ["{", "[]", '{"ignore": null}', '{"ignore": {}}',
+                 '{"ignore": [null]}', '{"ignore": ["MP004"]}',
+                 '{"ignore": [{"rule": "MP004", "reason": " "}]}',
+                 '{"ignore": [{"rule": ["MP004"], "reason": "test"}]}',
+                 '{"ignore": [{"rule": "MP004", "reason": "test", "path": 42}]}',
+                 '{"ignore": [{"rule": "MP004", "reason": "test", "match": []}]}']
+        self.write_manifest("stale")
+        for config in cases:
+            with self.subTest(config=config):
+                (self.root / ".skills-lint.json").write_text(config)
+                rules = self.rules(self.check(), "ERROR")
+                self.assertIn("CFG001", rules)
+                self.assertIn("MP004", rules)
+
+    def test_cli_reports_invalid_unicode_without_traceback_or_manifest_write(self):
+        self.skill.write_text('---\nname: demo-skill\ndescription: "Use when handling ' +
+                              r'\U00110000' + '"\n---\n# Demo\n')
+        original = self.manifest.read_bytes()
+        result = subprocess.run([sys.executable, str(Path(check_skills.__file__)),
+                                 "--root", str(self.root), "--fix-descriptions", "--format", "github"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("title=FM007", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.manifest.read_bytes(), original)
 
     def test_clean_repo_has_no_findings(self):
         self.assertEqual(self.rules(self.check()), [])

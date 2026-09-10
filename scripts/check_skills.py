@@ -127,18 +127,31 @@ class Checker:
         cfg = self.root / ".skills-lint.json"
         if not cfg.exists():
             return []
-        data = json.loads(cfg.read_text(encoding="utf-8"))
+        def invalid(message: str) -> None:
+            self.findings.append(Finding("CFG001", "ERROR", ".skills-lint.json", None, message))
+
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            invalid(f"cannot read ignore configuration: {exc}")
+            return []
+        if not isinstance(data, dict) or not isinstance(data.get("ignore", []), list):
+            invalid("ignore configuration must be an object with an 'ignore' array")
+            return []
         valid = []
         for e in data.get("ignore", []):
+            if not isinstance(e, dict):
+                invalid(f"ignore entry {e!r} must be an object")
+                continue
             ok = True
-            if not e.get("reason"):
-                self.findings.append(Finding("CFG001", "ERROR", ".skills-lint.json", None,
-                                             f"ignore entry {e!r} has no reason"))
-                ok = False
-            if not e.get("rule"):
-                self.findings.append(Finding("CFG001", "ERROR", ".skills-lint.json", None,
-                                             f"ignore entry {e!r} has no rule (it would match nothing)"))
-                ok = False
+            for key in ("rule", "reason"):
+                if not isinstance(e.get(key), str) or not e[key].strip():
+                    invalid(f"ignore entry {e!r} needs a non-empty string '{key}'")
+                    ok = False
+            for key in ("path", "match"):
+                if key in e and not isinstance(e[key], str):
+                    invalid(f"ignore entry {e!r}: '{key}' must be a string")
+                    ok = False
             # An invalid entry must not reach add(): it cannot justify suppressing
             # a finding, and one with no rule would match nothing anyway.
             if ok:
@@ -253,7 +266,11 @@ class Checker:
         block scalar or continuation cannot run past it into the body.
         """
         end = len(lines) if end is None else end
-        rest = (rest or "").strip()
+        rest = (rest or "").lstrip()
+        if rest.startswith(("'", '"')):
+            # Trailing whitespace can be escaped inside a continued quotation.
+            return Checker._quoted_scalar(lines, i, rest, end)
+        rest = rest.rstrip()
         if not rest or rest.startswith("#"):
             # Null, or a nested mapping / sequence on the following lines. Blank
             # lines inside the block are legal. A block sequence may sit at the
@@ -269,8 +286,6 @@ class Checker:
         m = BLOCK_HEADER.match(rest)
         if m:
             return Checker._block_scalar(lines, i, m.group(1), m.group(2), end)
-        if rest[0] in "'\"":
-            return Checker._quoted_scalar(lines, i, rest, end)
         if rest[0] in FLOW_COLLECTION_START:
             # Skip it, and any continuation lines, the way a block collection is
             # skipped: the value is structured, not undecodable.
@@ -282,9 +297,17 @@ class Checker:
             return None, i + 1, f"unsupported YAML syntax: {rest[:40]}"
         value = Checker._strip_comment(rest)
         j = i + 1
-        while j < end and lines[j].strip() and lines[j][0] in " \t" and not lines[j].strip().startswith("#"):
-            value += " " + Checker._strip_comment(lines[j].strip())
-            j += 1
+        while j < end:
+            next_line = j
+            while next_line < end and not lines[next_line].strip():
+                next_line += 1
+            if (next_line == end or lines[next_line][0] not in " \t"
+                    or lines[next_line].strip().startswith("#")):
+                break
+            # One physical break folds to a space; empty lines preserve paragraph breaks.
+            value += ("\n" * (next_line - j) if next_line > j else " ")
+            value += Checker._strip_comment(lines[next_line].strip())
+            j = next_line + 1
         if ": " in value or value.endswith(":"):
             return None, j, "plain scalar contains ': ' (YAML reads it as a nested mapping); quote the value"
         return value, j, None
@@ -306,15 +329,47 @@ class Checker:
             j += 1
             if j >= end:
                 return None, i + 1, "unterminated quoted string"
-            buf += " " + lines[j].strip()  # a line break inside quotes folds to a space
+            buf += "\n" + lines[j]
         tail = buf[close + 1:].strip()
         if tail and not tail.startswith("#"):
             return None, j + 1, f"unexpected text after closing quote: {tail[:40]}"
-        body = buf[1:close]
+        body = Checker._fold_quoted(buf[1:close], q)
         if q == "'":
             return body.replace("''", "'"), j + 1, None
         value, err = Checker._decode_double_quoted(body)
         return value, j + 1, err
+
+    @staticmethod
+    def _fold_quoted(body: str, quote: str) -> str:
+        """Fold physical line breaks before decoding escapes, preserving escaped spaces."""
+        out: list[str] = []
+        k = 0
+        while k < len(body):
+            if quote == '"' and body[k] == "\\":
+                if body[k + 1:k + 2] == "\n":
+                    # An escaped break joins lines without a separator. Further
+                    # empty lines still contribute their own line breaks.
+                    k += 2
+                    while k < len(body) and body[k] in " \t":
+                        k += 1
+                    while k < len(body) and body[k] == "\n":
+                        out.append("\n")
+                        k += 1
+                        while k < len(body) and body[k] in " \t":
+                            k += 1
+                else:
+                    out.append(body[k:k + 2])
+                    k += 2
+                continue
+            folded = re.match(r"[ \t]*\n[ \t]*(?:\n[ \t]*)*", body[k:])
+            if folded:
+                breaks = folded.group().count("\n")
+                out.append(" " if breaks == 1 else "\n" * (breaks - 1))
+                k += len(folded.group())
+            else:
+                out.append(body[k])
+                k += 1
+        return "".join(out)
 
     @staticmethod
     def _closing_quote(buf: str, q: str) -> int | None:
@@ -352,7 +407,10 @@ class Checker:
                 digits = body[k + 2:k + 2 + width]
                 if len(digits) != width or any(d not in "0123456789abcdefABCDEF" for d in digits):
                     return None, f"invalid escape \\{esc}{digits} in double-quoted string"
-                out.append(chr(int(digits, 16)))
+                codepoint = int(digits, 16)
+                if codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                    return None, f"invalid Unicode scalar \\{esc}{digits}"
+                out.append(chr(codepoint))
                 k += 2 + width
             elif esc in DOUBLE_ESCAPES or esc == "\t":
                 out.append(DOUBLE_ESCAPES.get(esc, esc))
@@ -365,6 +423,9 @@ class Checker:
     def _block_scalar(lines: list[str], i: int, style: str, indicators: str,
                       end: int | None = None) -> tuple[str | None, int, str | None]:
         end = len(lines) if end is None else end
+        if (sum(c.isdigit() for c in indicators) > 1
+                or sum(c in "+-" for c in indicators) > 1):
+            return None, i + 1, "invalid block scalar indicators"
         chomp = "-" if "-" in indicators else "+" if "+" in indicators else ""
         indent = next((int(c) for c in indicators if c.isdigit()), None)
         raw: list[str] = []
@@ -398,9 +459,9 @@ class Checker:
                     continue
                 more = line[0] in " \t"
                 if not text:
-                    text = line
+                    text = "\n" * breaks + line
                 elif breaks:
-                    text += "\n" * breaks + line
+                    text += "\n" * (breaks + int(more or prev_more)) + line
                 elif more or prev_more:
                     text += "\n" + line
                 else:
@@ -408,6 +469,8 @@ class Checker:
                 breaks, prev_more = 0, more
         if text and chomp != "-":
             text += "\n" * (1 + trailing if chomp == "+" else 1)
+        elif not text and chomp == "+":
+            text = "\n" * trailing
         return text, j, None
 
     # ---- fenced code blocks (CommonMark matching) ----------------------------
@@ -439,15 +502,22 @@ class Checker:
             while items and indent < items[-1]:
                 items.pop()
             base = items[-1] if items else 0
-            m = FENCE_OPEN.match(expanded)
-            if m and indent - base <= 3 and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+            # List markers may share the opening fence's line, including nested
+            # markers ("- - ```"). Inspect their content, not the original line.
+            content = expanded[base:]
+            while True:
+                li = LIST_ITEM.match(content)
+                if not li or len(li.group(1)) > 3:
+                    break
+                gap = len(li.group(3))
+                base += len(li.group(1)) + len(li.group(2)) + (1 if gap >= 5 else gap)
+                items.append(base)
+                content = expanded[base:]
+            relative_indent = len(content) - len(content.lstrip(" "))
+            m = FENCE_OPEN.match(content)
+            if m and relative_indent <= 3 and not (m.group(1)[0] == "`" and "`" in m.group(2)):
                 open_char, open_len, open_line = m.group(1)[0], len(m.group(1)), idx + 1
                 inside[idx] = True
-                continue
-            li = LIST_ITEM.match(expanded[base:]) if indent - base <= 3 else None
-            if li:
-                gap = len(li.group(3))
-                items.append(base + len(li.group(1)) + len(li.group(2)) + (1 if gap >= 5 else gap))
         return inside, open_line
 
     @staticmethod

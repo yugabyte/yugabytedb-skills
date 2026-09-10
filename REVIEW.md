@@ -20,6 +20,8 @@ Two failure modes are worth naming because both have happened here:
 - **Asserting an inference as documented fact.** If the docs describe a package but not a behaviour, say the mechanism rather than claiming the guarantee.
 - **Reporting a claim as wrong from a single source that merely omits it.** Absence from one page is not disproof — check a second page before calling something a hallucination.
 
+For a checker change, compare fixtures against the format specification or an independent parser, and test the resulting manifest writes and CLI diagnostics. The frontmatter decoder supports a YAML subset; skipped collections are not validated. Passing tests that compare the checker with its own output cannot establish that the skill platform reads the same value. The review-fix and checker checklists in [AGENTS.md](AGENTS.md#review-fixes-verify-the-behavior-and-every-place-that-teaches-it) record the regression cases and evidence requirements.
+
 ## Conventions the checker already enforces — do not re-report
 
 `python3 scripts/check_skills.py` runs in CI on every PR and covers: frontmatter validity and manifest/README sync, size budgets, resolution of `references/…` paths **named in `SKILL.md`** as a markdown link or a backtick-wrapped mention, **outside fenced code** (a path that appears *only* inside a fence is not resolved), sibling pointers between files in the same `references/` directory, code-fence matching, and exact version pins. If a finding is one the checker would catch, the checker will catch it. Report the rule being *wrong* if it is, not the individual instance.
