@@ -91,6 +91,35 @@ class FrontmatterTests(unittest.TestCase):
         self.assertNotIn("Status", fields)
         self.assertNotIn("Accept", fields)
 
+    def test_nested_value_does_not_swallow_the_blank_line_that_ends_the_block(self):
+        # A nested/empty value must not consume the blank line that bounds the
+        # block, or body text lands in the fields with no problem reported.
+        # yb-rag-langchain/SKILL.md ships exactly this `metadata:` shape.
+        fields, _, problems = self.fm(
+            "---\nname: demo\nmetadata:\n  tags: a\n\nStatus: ready\n---\n# Body\n")
+        self.assertIn("FM001", [r for r, _, _ in problems])
+        self.assertNotIn("Status", fields)
+
+    def test_empty_value_does_not_swallow_the_blank_line_either(self):
+        fields, _, problems = self.fm(
+            "---\nname: demo\ndescription:\n\nAccept: application/json\n---\n# Body\n")
+        self.assertIn("FM001", [r for r, _, _ in problems])
+        self.assertNotIn("Accept", fields)
+
+    def test_blank_line_interior_to_a_nested_block_is_kept(self):
+        # The converse: a blank line followed by more indented content is part of
+        # the nested block, so the block is still properly terminated.
+        fields, _, problems = self.fm(
+            "---\nname: demo\nmetadata:\n  a: 1\n\n  b: 2\ndescription: after\n---\n")
+        self.assertEqual(problems, [])
+        self.assertIsNone(fields["metadata"])
+        self.assertEqual(fields["description"], "after")
+
+    def test_duplicate_key_is_fm007(self):
+        fields, _, problems = self.fm("---\nname: first\nname: second\ndescription: d\n---\n")
+        self.assertTrue(any(r == "FM007" and "duplicate" in msg for r, _, msg in problems),
+                        problems)
+
     def test_nested_mapping_is_skipped(self):
         fields, _, problems = self.fm(
             "---\nname: ysql\nmetadata:\n  author: x\n  version: \"1\"\ndescription: after nested\n---\n")
@@ -242,6 +271,20 @@ Done.
         self.assertLessEqual(errors.count("FM007"), 1)
         self.assertEqual(Checker(self.root).fix_descriptions(), 0)
         self.assertEqual(self.manifest_description(), "stale")
+
+    def test_empty_frontmatter_block_is_reported_as_empty_not_missing(self):
+        # A present-but-empty block must not be reported as "no YAML frontmatter
+        # block": the block exists, it just has no name/description.
+        self.skill.write_text("---\n---\n\n# Demo\n")
+        checker = self.check()
+        msgs = [f.msg for f in checker.findings if f.rule in ("FM001", "FM002")]
+        self.assertTrue(any("empty" in m for m in msgs), msgs)
+        self.assertFalse(any("no YAML frontmatter block" in m for m in msgs), msgs)
+
+    def test_file_with_no_frontmatter_is_still_fm001(self):
+        self.skill.write_text("# Demo only\n")
+        msgs = [f.msg for f in self.check().findings if f.rule == "FM001"]
+        self.assertTrue(any("no YAML frontmatter block" in m for m in msgs), msgs)
 
     def test_name_mismatch_is_fm003_and_mp003(self):
         self.skill.write_text(self.SKILL.replace('name: "demo-skill"', "name: other-name", 1))

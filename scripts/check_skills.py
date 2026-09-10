@@ -149,7 +149,8 @@ class Checker:
         folded), 'single' and "double" quoted scalars, and `|` / `>` block scalars
         with `-` / `+` chomping. Nested mappings and sequences are skipped (value
         None). Problems are (rule, line, message): FM001 when the block has no
-        closing `---`, FM007 for a line or value this subset cannot decode.
+        closing `---`, FM007 for a line or value this subset cannot decode and
+        for a duplicate key (YAML rejects those).
 
         The block is the CONTIGUOUS run of entries starting after the opener: it
         ends at the first `---` (the terminator) or the first blank line,
@@ -185,6 +186,10 @@ class Checker:
                 i += 1
                 continue
             key = m.group(1)
+            if key in fields:
+                # YAML rejects duplicate mapping keys; silently taking the last one
+                # would let FM003/MP003 judge a value the platform may not use.
+                problems.append(("FM007", i + 1, f"duplicate frontmatter key '{key}'"))
             where[key] = i + 1
             value, i, err = Checker._yaml_value(lines, i, m.group(2))
             if err:
@@ -203,11 +208,26 @@ class Checker:
         """Decode the value after `key:` on lines[i]. Returns (value, next line index, error)."""
         rest = (rest or "").strip()
         if not rest or rest.startswith("#"):
-            # Null, or a nested mapping / sequence on the following indented lines: skip it.
+            # Null, or a nested mapping / sequence on the following indented lines.
+            # A blank line belongs to that block only when an indented line follows
+            # it; otherwise it ends the frontmatter, and swallowing it here would
+            # bypass the block bound frontmatter() relies on and let body text be
+            # absorbed as fields.
             j, nested = i + 1, False
-            while j < len(lines) and (not lines[j].strip() or lines[j][0] in " \t"):
-                nested = nested or bool(lines[j].strip())
-                j += 1
+            while j < len(lines):
+                if lines[j].strip():
+                    if lines[j][0] not in " \t":
+                        break                   # column-0 content ends the block
+                    nested = True
+                    j += 1
+                    continue
+                k = j
+                while k < len(lines) and not lines[k].strip():
+                    k += 1
+                if k < len(lines) and lines[k].strip() and lines[k][0] in " \t":
+                    j = k                       # blank line is interior to the block
+                    continue
+                break                           # blank line ends the block
             return (None if nested else ""), j, None
         m = BLOCK_HEADER.match(rest)
         if m:
@@ -422,7 +442,6 @@ class Checker:
             self.add("FM001", "ERROR", rel_dir, None, "SKILL.md is missing")
             return
         text = self.read(skill_md)
-        lines = text.split("\n")
         fm, where, problems = self.frontmatter(text)
 
         # -- frontmatter
@@ -430,7 +449,13 @@ class Checker:
             self.add(rule, "ERROR", skill_md, line_no, msg)
         bad_lines = {line_no for _, line_no, _ in problems}
         if not fm and not problems:
-            self.add("FM001", "ERROR", skill_md, 1, "no YAML frontmatter block (--- ... ---)")
+            # Distinguish "no block at all" from "block present but empty" — the
+            # fix differs, and frontmatter() returns the same empty result for both.
+            if text.split("\n", 1)[0].strip() == "---":
+                self.add("FM002", "ERROR", skill_md, 1,
+                         "frontmatter block is empty (needs 'name' and 'description')")
+            else:
+                self.add("FM001", "ERROR", skill_md, 1, "no YAML frontmatter block (--- ... ---)")
         name = (fm.get("name") or "").strip() or None
         desc = (fm.get("description") or "").strip() or None
         if fm and not name and where.get("name") not in bad_lines:

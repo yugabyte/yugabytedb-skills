@@ -151,7 +151,7 @@ What it enforces (errors fail CI, warnings annotate the PR):
 
 | Group | Rules |
 | --- | --- |
-| Frontmatter | present and closed with `---` (the block ends at the first `---` or the first blank line, so a body thematic break cannot pose as the terminator); values decoded as YAML scalars (plain, quoted, `|` / `>` block) — a nested mapping or sequence is skipped without a finding, anything else that fails to decode is an error; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars; `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill) |
+| Frontmatter | present and closed with `---` (the block ends at the first `---` or the first blank line, so a body thematic break cannot pose as the terminator); values decoded as YAML scalars (plain, quoted, `|` / `>` block) — a nested mapping or sequence is skipped without a finding, while a duplicate key or anything else that fails to decode is an error; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars; `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill) |
 | Manifest | every `skills/*/` directory is registered in `marketplace.json`; every entry's directory exists; manifest `name` and `description` equal the frontmatter |
 | README | every registered skill has an Available Skills row (error) and an `npx skills add … -s <name>` line (warn) |
 | Size | `SKILL.md` over 500 lines is an error; over 400 lines or 4000 words is a warning; a reference file over 600 lines is a warning |
