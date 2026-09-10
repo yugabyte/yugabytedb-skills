@@ -44,7 +44,8 @@ skills/
       providers-universe.md    # Stage 2: yba_aws/gcp/azure/onprem_provider, *_storage_config, yba_universe, yba_backup/backup_schedule/restore
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
-.skills-lint.json             # Known exceptions for the static checks (each needs a reason)
+.skills-lint.json             # Known exceptions for the static checks (each needs a rule and a reason)
+REVIEW.md                     # What to check when reviewing a change here (for humans and review bots)
 scripts/
   check_skills.py             # Static checks for skills (frontmatter, manifest/README sync, size, links, version pins)
   test_check_skills.py        # Tests for the checker (unittest, standard library only)
