@@ -560,6 +560,104 @@ class FenceIndentationTests(unittest.TestCase):
         self.assertFalse(any(inside))
 
 
+class ManifestShapeTests(unittest.TestCase):
+    """A plugin entry may name more than one directory; none may be dropped."""
+
+    def build(self, skills: list[str]):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name in skills:
+            (tmp / "skills" / name).mkdir(parents=True)
+            (tmp / "skills" / name / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: Demo skill for the checker's own "
+                f"tests. Use when verifying manifest shapes. Triggers on {name}.\n---\n\n# {name}\n",
+                encoding="utf-8")
+        (tmp / ".claude-plugin").mkdir()
+        return tmp
+
+    def run_checker(self, root: Path):
+        c = Checker(root)
+        c.run()
+        return {f.rule for f in c.findings}
+
+    def test_second_directory_in_one_entry_is_not_reported_unregistered(self):
+        tmp = self.build(["alpha", "beta"])
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"name": "alpha",
+                          "description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying manifest shapes. Triggers on alpha.",
+                          "skills": ["./skills/alpha", "./skills/beta"]}]}), encoding="utf-8")
+        rules = self.run_checker(tmp)
+        self.assertNotIn("MP001", rules, "the second directory was treated as unregistered")
+        self.assertIn("MP005", rules, "a multi-skill entry should be reported")
+
+    def test_one_directory_per_entry_does_not_raise_mp005(self):
+        tmp = self.build(["alpha"])
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"name": "alpha",
+                          "description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying manifest shapes. Triggers on alpha.",
+                          "skills": ["./skills/alpha"]}]}), encoding="utf-8")
+        self.assertNotIn("MP005", self.run_checker(tmp))
+
+
+class ReferenceLinkingTests(unittest.TestCase):
+    """A reference counts as linked only when the path it names resolves."""
+
+    def build(self, body: str, ref_names: list[str]):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        skill = tmp / "skills" / "alpha"
+        (skill / "references").mkdir(parents=True)
+        for name in ref_names:
+            (skill / "references" / name).write_text(f"# {name}\n", encoding="utf-8")
+        (skill / "SKILL.md").write_text(
+            "---\nname: alpha\ndescription: Demo skill for the checker's own tests. Use when "
+            "verifying reference linking. Triggers on alpha.\n---\n\n" + body, encoding="utf-8")
+        (tmp / ".claude-plugin").mkdir()
+        (tmp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"plugins": [{"name": "alpha",
+                          "description": "Demo skill for the checker's own tests. Use when "
+                                         "verifying reference linking. Triggers on alpha.",
+                          "skills": ["./skills/alpha"]}]}), encoding="utf-8")
+        c = Checker(tmp)
+        c.run()
+        return c.findings
+
+    def test_broken_link_does_not_mark_a_same_named_real_file_as_linked(self):
+        # The link names references/old/notes.md, which does not exist; the real
+        # references/notes.md is mentioned nowhere. Keying `linked` by basename
+        # used to let the broken link satisfy the real file's RF002.
+        findings = self.build("See [notes](references/old/notes.md).", ["notes.md"])
+        self.assertIn("RF001", {f.rule for f in findings})
+        self.assertIn("RF002", {f.rule for f in findings},
+                      "a broken link suppressed the unlinked-reference warning")
+
+    def test_working_link_marks_the_file_as_linked(self):
+        findings = self.build("See [notes](references/notes.md).", ["notes.md"])
+        self.assertEqual({f.rule for f in findings} & {"RF001", "RF002"}, set())
+
+
+class StructureTreeTests(unittest.TestCase):
+    """AG001 reads the structure tree, not the whole of AGENTS.md."""
+
+    DOC = ("# AGENTS\n\n## Repository Structure\n\n```\nskills/\n  ysql/\n"
+           "    SKILL.md\n```\n\n## Installation\n\n`npx skills add … -s ycql/`\n")
+
+    def test_only_the_fenced_tree_is_searched(self):
+        tree = Checker.structure_tree(self.DOC)
+        self.assertIn("ysql/", tree)
+        self.assertNotIn("ycql/", tree, "a mention outside the tree was included")
+
+    def test_missing_section_falls_back_to_the_whole_document(self):
+        doc = "# AGENTS\n\nNo structure section here, but ysql/ is named.\n"
+        self.assertEqual(Checker.structure_tree(doc), doc)
+
+    def test_missing_fence_falls_back_to_the_whole_document(self):
+        doc = "## Repository Structure\n\nskills/ysql/ in prose, no fence.\n"
+        self.assertEqual(Checker.structure_tree(doc), doc)
+
+
 class DocumentationDriftTests(unittest.TestCase):
     """AGENTS.md documents what the checker does; these fail when they diverge.
 

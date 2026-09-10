@@ -448,10 +448,24 @@ class Checker:
         skills_dir = self.root / "skills"
         manifest_path = self.root / ".claude-plugin" / "marketplace.json"
         readme = self.read(self.root / "README.md") if (self.root / "README.md").exists() else ""
-        agents = self.read(self.root / "AGENTS.md") if (self.root / "AGENTS.md").exists() else ""
+        agents = self.structure_tree(
+            self.read(self.root / "AGENTS.md") if (self.root / "AGENTS.md").exists() else "")
 
         manifest = json.loads(self.read(manifest_path)) if manifest_path.exists() else {"plugins": []}
-        plugin_dirs = {Path(p["skills"][0]).name: p for p in manifest.get("plugins", []) if p.get("skills")}
+        # Index every directory an entry registers, not just the first: missing
+        # the rest would report them as unregistered (MP001), which is wrong.
+        # The name/description sync below is defined for one skill per entry, so
+        # an entry listing more than one is reported rather than half-checked.
+        plugin_dirs: dict[str, dict] = {}
+        for p in manifest.get("plugins", []):
+            paths = p.get("skills") or []
+            for path in paths:
+                plugin_dirs.setdefault(Path(path).name, p)
+            if len(paths) > 1:
+                self.add("MP005", "ERROR", ".claude-plugin/marketplace.json", None,
+                         f"plugin '{p.get('name')}' registers {len(paths)} skill directories; "
+                         "this marketplace uses one skill per entry, which is what the "
+                         "name and description sync (MP003/MP004) compares")
 
         skill_dirs = sorted(d for d in skills_dir.iterdir() if d.is_dir()) if skills_dir.exists() else []
         names_seen: dict[str, str] = {}
@@ -465,6 +479,23 @@ class Checker:
                 if not (self.root / s).is_dir():
                     self.add("MP002", "ERROR", ".claude-plugin/marketplace.json", None,
                              f"plugin '{p['name']}' points at missing directory {s}")
+
+    @staticmethod
+    def structure_tree(agents: str) -> str:
+        """The fenced block under AGENTS.md's "Repository Structure" heading.
+
+        AG001 asks whether the tree lists a skill directory. Searching the whole
+        document instead would let any other mention of `<dir>/` — a prose
+        reference, an install line — stand in for the tree entry. Falls back to
+        the whole document when the section or its fence is missing, so a
+        reshaped AGENTS.md weakens the check rather than passing everything.
+        """
+        heading = re.search(r"^#{2,} +Repository Structure *$", agents, re.M)
+        if not heading:
+            return agents
+        fence = re.search(r"^(`{3,}|~{3,})[^\n]*\n(.*?)^\1",
+                          agents[heading.end():], re.M | re.S)
+        return fence.group(2) if fence else agents
 
     def check_skill(self, d: Path, plugin_dirs: dict, readme: str, agents: str, names_seen: dict) -> None:
         skill_md = d / "SKILL.md"
@@ -578,9 +609,14 @@ class Checker:
         for i, line in self.outside_fences(text):
             for m in REF_LINK.finditer(line):
                 target = m.group(1)
-                linked.add(Path(target).name)
                 if not (d / target).exists():
                     self.add("RF001", "ERROR", skill_md, i, f"link target does not exist: {target}")
+                else:
+                    # Only a reference that resolves counts as linking the file.
+                    # `linked` is keyed by basename, so adding a broken target
+                    # would hide RF002 for a real file of the same name in
+                    # another directory. Backtick mentions below do the same.
+                    linked.add(Path(target).name)
             # Backtick-wrapped mentions (e.g. the "This skill includes" list) count
             # as references too — a stale one points the agent at a missing file
             # even though it is not markdown-link syntax.
@@ -592,7 +628,10 @@ class Checker:
                     linked.add(Path(target).name)
         if refs_dir.is_dir():
             for f in sorted(refs_dir.glob("*.md")):
-                if f.name not in linked and f.name not in text:
+                # `linked` already holds both forms a reference can take, so a
+                # bare substring test on the whole file adds nothing but false
+                # negatives: any longer path ending in this name would match.
+                if f.name not in linked:
                     self.add("RF002", "WARN", f, None,
                              "reference file is never linked or mentioned from SKILL.md (agents will not find it)")
                 self.check_markdown(f, is_skill_md=False)
