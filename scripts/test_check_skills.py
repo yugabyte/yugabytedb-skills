@@ -69,42 +69,57 @@ class FrontmatterTests(unittest.TestCase):
         self.assertLessEqual(sum(1 for r, _, _ in problems if r == "FM007"), 1)
         self.assertEqual(fields["name"], "ysql")
 
-    def test_missing_terminator_with_thematic_break_in_body_is_fm001(self):
-        # The block ends at the blank line, so the later `---` thematic break is
-        # body, not the terminator: FM001, and no body text in the fields.
+    def test_prose_body_above_a_thematic_break_is_fm007(self):
+        # Terminator missing, body reaches a `---` thematic break. The break is
+        # the terminator (that is how frontmatter is delimited), and the heading
+        # and prose above it do not decode as `key: value`, so FM007 flags it.
         text = ("---\nname: ysql\ndescription: x\n\n"
                 "# YugabyteDB YSQL Best Practices\n\n"
                 "Some intro prose without a colon.\n\n---\nmore body\n")
-        fields, _, problems = self.fm(text)
-        self.assertIn("FM001", [r for r, _, _ in problems])
-        self.assertEqual(set(fields), {"name", "description"})
+        _, _, problems = self.fm(text)
+        self.assertIn("FM007", [r for r, _, _ in problems])
 
-    def test_missing_terminator_with_key_shaped_body_is_fm001(self):
-        # The shape the scan-to-the-next-`---` rule got wrong: every body line up
-        # to the thematic break is `key: value`, so nothing fails to decode. The
-        # blank line must still end the block, or body text lands in the fields
-        # and --fix-descriptions writes it into marketplace.json.
+    def test_key_shaped_body_absorbed_is_caught_by_fm008(self):
+        # Nothing structural separates this from a block that really carries
+        # those keys, so shape cannot decide it. The spec field set can: neither
+        # `Status` nor `Accept` is an Agent Skills frontmatter field.
         text = ("---\nname: ysql\ndescription: x\n\n"
                 "Status: ready\nAccept: application/json\n\n---\nmore body\n")
-        fields, _, problems = self.fm(text)
-        self.assertIn("FM001", [r for r, _, _ in problems])
-        self.assertNotIn("Status", fields)
-        self.assertNotIn("Accept", fields)
+        _, _, problems = self.fm(text)
+        flagged = {msg.split("'")[1] for r, _, msg in problems if r == "FM008"}
+        self.assertEqual(flagged, {"Status", "Accept"})
 
-    def test_nested_value_does_not_swallow_the_blank_line_that_ends_the_block(self):
-        # A nested/empty value must not consume the blank line that bounds the
-        # block, or body text lands in the fields with no problem reported.
-        # yb-rag-langchain/SKILL.md ships exactly this `metadata:` shape.
-        fields, _, problems = self.fm(
+    def test_block_scalar_then_absorbed_body_key_is_fm008(self):
+        # The block-scalar path: `>` consumes the blank line, so `Status` lands in
+        # the fields. FM008 is what catches it.
+        _, _, problems = self.fm(
+            "---\nname: demo\ndescription: >\n  Real description.\n\nStatus: ready\n---\n# Body\n")
+        self.assertIn("FM008", [r for r, _, _ in problems])
+
+    def test_nested_value_then_absorbed_body_key_is_fm008(self):
+        # yb-rag-langchain/SKILL.md ships this `metadata:` shape.
+        _, _, problems = self.fm(
             "---\nname: demo\nmetadata:\n  tags: a\n\nStatus: ready\n---\n# Body\n")
-        self.assertIn("FM001", [r for r, _, _ in problems])
-        self.assertNotIn("Status", fields)
+        self.assertIn("FM008", [r for r, _, _ in problems])
 
-    def test_empty_value_does_not_swallow_the_blank_line_either(self):
+    def test_blank_line_between_keys_is_valid_yaml_and_accepted(self):
+        # The converse of the FM008 cases and the reason shape cannot decide them:
+        # identical structure, but every key is a spec field, so this is valid
+        # frontmatter and must not be reported as unclosed.
         fields, _, problems = self.fm(
-            "---\nname: demo\ndescription:\n\nAccept: application/json\n---\n# Body\n")
-        self.assertIn("FM001", [r for r, _, _ in problems])
-        self.assertNotIn("Accept", fields)
+            "---\nname: x\nmetadata:\n  tags: a\n\ndescription: Use when the shape is valid.\n---\n")
+        self.assertEqual(problems, [])
+        self.assertEqual(fields["description"], "Use when the shape is valid.")
+
+    def test_unknown_top_level_key_is_fm008(self):
+        _, _, problems = self.fm("---\nname: x\ndescription: d\nauthor: someone\n---\n")
+        self.assertTrue(any(r == "FM008" and "author" in msg for r, _, msg in problems), problems)
+
+    def test_optional_spec_fields_are_accepted(self):
+        _, _, problems = self.fm(
+            "---\nname: x\ndescription: d\nlicense: Apache-2.0\ncompatibility: Requires git\n"
+            "allowed-tools: Read\nmetadata:\n  author: y\n---\n")
+        self.assertEqual(problems, [])
 
     def test_blank_line_interior_to_a_nested_block_is_kept(self):
         # The converse: a blank line followed by more indented content is part of

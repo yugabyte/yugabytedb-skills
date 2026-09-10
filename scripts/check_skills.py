@@ -43,6 +43,11 @@ KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 KEY_LINE = re.compile(r"^([A-Za-z_][\w-]*):(?:[ \t]+(.*))?$")
 BLOCK_HEADER = re.compile(r"^([|>])([1-9+-]{0,2})[ \t]*(#.*)?$")
 UNSUPPORTED_SCALAR_START = ("[", "{", "&", "*", "!", "%", "@", "`")
+# Top-level frontmatter fields the Agent Skills specification defines. A key
+# outside this set is either a typo or body text absorbed because the block is
+# missing its closing --- (FM008); per the spec, extra data belongs in metadata.
+SPEC_FIELDS = frozenset({"name", "description", "license", "compatibility",
+                         "allowed-tools", "metadata"})
 DOUBLE_ESCAPES = {
     # Escapes YAML defines for double-quoted scalars. The last four are written
     # as \u escapes on purpose: as literal characters they are invisible in a
@@ -116,7 +121,7 @@ class Checker:
                                              f"ignore entry {e!r} has no rule (it would match nothing)"))
                 ok = False
             # An invalid entry must not reach add(): it cannot justify suppressing
-            # anything, and a reason-less one would raise KeyError there.
+            # a finding, and one with no rule would match nothing anyway.
             if ok:
                 valid.append(e)
         return valid
@@ -149,38 +154,44 @@ class Checker:
         folded), 'single' and "double" quoted scalars, and `|` / `>` block scalars
         with `-` / `+` chomping. Nested mappings and sequences are skipped (value
         None). Problems are (rule, line, message): FM001 when the block has no
-        closing `---`, FM007 for a line or value this subset cannot decode and
-        for a duplicate key (YAML rejects those).
+        closing `---`; FM007 for a line or value this subset cannot decode and
+        for a duplicate key (YAML rejects those); FM008 for a top-level key the
+        Agent Skills specification does not define.
 
-        The block is the CONTIGUOUS run of entries starting after the opener: it
-        ends at the first `---` (the terminator) or the first blank line,
-        whichever comes first. Ending on a blank line means the block was never
-        closed, so a later `---` thematic break in the body cannot masquerade as
-        the terminator — not even when the body's own lines are `key: value`
-        shaped (`Status: ready`, `Accept: application/json`), which a
-        scan-to-the-next-`---` would silently absorb into the fields.
+        The block runs from the opener to the FIRST line that is exactly `---`,
+        which is how frontmatter is delimited — blank lines inside it are legal
+        YAML and are kept. Nothing structural distinguishes a block whose author
+        forgot the terminator (so body text was absorbed) from one that really
+        does carry those keys: both are `key`, `key`, indented, blank, `key`,
+        `---`. Rather than guess from shape, this parser matches the delimiters
+        the way the platform's own parser does, and FM008 catches the absorbed
+        case semantically — body lines like `Status: ready` are not spec fields.
+
         Callers must not act on values from a block that has problems.
         """
         lines = text.split("\n")
-        if not lines or lines[0].strip() != "---":
+        # Both delimiters sit at column 0; an indented `---` is content, not a
+        # delimiter, so rstrip (not strip) is the right comparison here.
+        if not lines or lines[0].rstrip() != "---":
             return {}, {}, []
+        # The terminator, and the bound every sub-parser must respect so that a
+        # block scalar or nested mapping cannot run past it into the body.
+        term = next((j for j in range(1, len(lines)) if lines[j].rstrip() == "---"), None)
+        end = term if term is not None else len(lines)
         fields: dict[str, str | None] = {}
         where: dict[str, int] = {}
         problems: list[tuple[str, int | None, str]] = []
         first_bad: tuple[int, str] | None = None
         i = 1
-        while i < len(lines):
+        while i < end:
             stripped = lines[i].strip()
-            if stripped == "---":
-                break                       # the terminator, ending the block
             if not stripped:
-                break                       # a blank line ends the block; whatever
-                                            # follows is body, not frontmatter
+                i += 1                      # blank lines are legal inside the block
+                continue
             m = KEY_LINE.match(lines[i])
             if not m:
                 # Flag it, but keep scanning: a malformed line inside an otherwise
-                # properly terminated block should not be mistaken for a missing
-                # terminator.
+                # properly terminated block should not stop the rest being read.
                 if first_bad is None:
                     first_bad = (i + 1, stripped[:60])
                 i += 1
@@ -191,54 +202,51 @@ class Checker:
                 # would let FM003/MP003 judge a value the platform may not use.
                 problems.append(("FM007", i + 1, f"duplicate frontmatter key '{key}'"))
             where[key] = i + 1
-            value, i, err = Checker._yaml_value(lines, i, m.group(2))
+            value, i, err = Checker._yaml_value(lines, i, m.group(2), end)
             if err:
                 problems.append(("FM007", where[key], f"'{key}': {err}"))
             fields[key] = value
-        closed = i < len(lines) and lines[i].strip() == "---"
         if first_bad is not None:
             problems.append(("FM007", first_bad[0], f"cannot parse frontmatter line: {first_bad[1]}"))
-        if not closed:
-            problems.append(("FM001", (i + 1) if i < len(lines) else (len(text.splitlines()) or 1),
+        for key, line_no in where.items():
+            if key not in SPEC_FIELDS:
+                problems.append(("FM008", line_no,
+                                 f"'{key}' is not an Agent Skills frontmatter field "
+                                 f"(expected one of: {', '.join(sorted(SPEC_FIELDS))}). "
+                                 f"If this is body text, the block is missing its closing ---"))
+        if term is None:
+            problems.append(("FM001", len(text.splitlines()) or 1,
                              "frontmatter block is not closed (no terminating ---)"))
         return fields, where, problems
 
     @staticmethod
-    def _yaml_value(lines: list[str], i: int, rest: str | None) -> tuple[str | None, int, str | None]:
-        """Decode the value after `key:` on lines[i]. Returns (value, next line index, error)."""
+    def _yaml_value(lines: list[str], i: int, rest: str | None,
+                    end: int | None = None) -> tuple[str | None, int, str | None]:
+        """Decode the value after `key:` on lines[i]. Returns (value, next line index, error).
+
+        `end` bounds the scan at the frontmatter terminator so a nested mapping,
+        block scalar or continuation cannot run past it into the body.
+        """
+        end = len(lines) if end is None else end
         rest = (rest or "").strip()
         if not rest or rest.startswith("#"):
             # Null, or a nested mapping / sequence on the following indented lines.
-            # A blank line belongs to that block only when an indented line follows
-            # it; otherwise it ends the frontmatter, and swallowing it here would
-            # bypass the block bound frontmatter() relies on and let body text be
-            # absorbed as fields.
+            # Blank lines inside the nested block are legal; column-0 content ends it.
             j, nested = i + 1, False
-            while j < len(lines):
-                if lines[j].strip():
-                    if lines[j][0] not in " \t":
-                        break                   # column-0 content ends the block
-                    nested = True
-                    j += 1
-                    continue
-                k = j
-                while k < len(lines) and not lines[k].strip():
-                    k += 1
-                if k < len(lines) and lines[k].strip() and lines[k][0] in " \t":
-                    j = k                       # blank line is interior to the block
-                    continue
-                break                           # blank line ends the block
+            while j < end and (not lines[j].strip() or lines[j][0] in " \t"):
+                nested = nested or bool(lines[j].strip())
+                j += 1
             return (None if nested else ""), j, None
         m = BLOCK_HEADER.match(rest)
         if m:
-            return Checker._block_scalar(lines, i, m.group(1), m.group(2))
+            return Checker._block_scalar(lines, i, m.group(1), m.group(2), end)
         if rest[0] in "'\"":
-            return Checker._quoted_scalar(lines, i, rest)
+            return Checker._quoted_scalar(lines, i, rest, end)
         if rest[0] in UNSUPPORTED_SCALAR_START or rest[:2] in ("- ", "? ", ": ") or rest in ("-", "?", ":"):
             return None, i + 1, f"unsupported YAML syntax: {rest[:40]}"
         value = Checker._strip_comment(rest)
         j = i + 1
-        while j < len(lines) and lines[j].strip() and lines[j][0] in " \t" and not lines[j].strip().startswith("#"):
+        while j < end and lines[j].strip() and lines[j][0] in " \t" and not lines[j].strip().startswith("#"):
             value += " " + Checker._strip_comment(lines[j].strip())
             j += 1
         if ": " in value or value.endswith(":"):
@@ -251,20 +259,22 @@ class Checker:
         return (s[: m.start()] if m else s).rstrip()
 
     @staticmethod
-    def _quoted_scalar(lines: list[str], i: int, rest: str) -> tuple[str | None, int, str | None]:
+    def _quoted_scalar(lines: list[str], i: int, rest: str,
+                       end: int | None = None) -> tuple[str | None, int, str | None]:
+        end = len(lines) if end is None else end
         q, buf, j = rest[0], rest, i
         while True:
-            end = Checker._closing_quote(buf, q)
-            if end is not None:
+            close = Checker._closing_quote(buf, q)
+            if close is not None:
                 break
             j += 1
-            if j >= len(lines) or lines[j].strip() == "---":
+            if j >= end:
                 return None, i + 1, "unterminated quoted string"
             buf += " " + lines[j].strip()  # a line break inside quotes folds to a space
-        tail = buf[end + 1:].strip()
+        tail = buf[close + 1:].strip()
         if tail and not tail.startswith("#"):
             return None, j + 1, f"unexpected text after closing quote: {tail[:40]}"
-        body = buf[1:end]
+        body = buf[1:close]
         if q == "'":
             return body.replace("''", "'"), j + 1, None
         value, err = Checker._decode_double_quoted(body)
@@ -316,12 +326,14 @@ class Checker:
         return "".join(out), None
 
     @staticmethod
-    def _block_scalar(lines: list[str], i: int, style: str, indicators: str) -> tuple[str | None, int, str | None]:
+    def _block_scalar(lines: list[str], i: int, style: str, indicators: str,
+                      end: int | None = None) -> tuple[str | None, int, str | None]:
+        end = len(lines) if end is None else end
         chomp = "-" if "-" in indicators else "+" if "+" in indicators else ""
         indent = next((int(c) for c in indicators if c.isdigit()), None)
         raw: list[str] = []
         j = i + 1
-        while j < len(lines):
+        while j < end:
             line = lines[j]
             if not line.strip():
                 raw.append("")
