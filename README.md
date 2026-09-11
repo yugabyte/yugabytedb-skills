@@ -19,8 +19,14 @@ npx skills add yugabyte/yugabytedb-skills -s ysql
 # Cassandra-compatible YCQL API
 npx skills add yugabyte/yugabytedb-skills -s ycql
 
+# YugabyteDB Kubernetes Operator
+npx skills add yugabyte/yugabytedb-skills -s yb-k8s-operator
+
 # YugabyteDB Anywhere REST API
 npx skills add yugabyte/yugabytedb-skills -s yba-api
+
+# YugabyteDB Anywhere Terraform provider
+npx skills add yugabyte/yugabytedb-skills -s yba-terraform
 
 # RAG / semantic search with LangChain on YugabyteDB
 npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain
@@ -34,6 +40,7 @@ npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain
 |`ycql`|YCQL (Cassandra-compatible API) development — covers partition keys, clustering columns, global secondary indexes, prepared statements, batching, TTL management, and memory configuration |
 |`yb-k8s-operator`|YugabyteDB Kubernetes Operator - deploying and managing YugabyteDB universes on Kubernetes through the YugabyteDB Anywhere or YugabyteDB (OSS) Kubernetes Operators|
 |`yba-api`|YugabyteDB Anywhere REST API — using the YugabyteDB Anywhere REST API to create, observe, manage and deploy YugabyteDB universes in a range of infrastructure topologies and clouds|
+|`yba-terraform`|YugabyteDB Anywhere Terraform provider (`yugabyte/yba`) — installing YBA on a VM, registering the first customer, and creating cloud (AWS/GCP/Azure) or on-prem providers, storage configs, universes, backups, schedules and restores, plus the upstream cloud IAM and network discovery those manifests need|
 |`yb-rag-langchain`|RAG, semantic search, and hybrid (vector + full-text) search on YugabyteDB with LangChain — covers `PGVectorStore` setup, `ybhnsw` / GIN index creation, hybrid search configuration, metadata filtering, and combining relational predicates with vector queries|
 
 ## Learn More

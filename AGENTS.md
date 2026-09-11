@@ -6,7 +6,7 @@ This file provides guidance to AI agents when working with yugabyteDB.
 
 YugabyteDB Agent Skills — a collection of reusable AI agent skills (delivered as Markdown files) for deploying, managing and developing for YugabyteDB, a Postgres-compatible distributed SQL database. Published to the Claude Plugin Marketplace and compatible with Claude Code, Cursor, GitHub Copilot, Windsurf, Gemini, and any tool supporting the [skills.sh](https://skills.sh) ecosystem.
 
-**This is a documentation-only repository.** There is no build system, test suite, or application code.
+**This is a documentation-only repository.** There is no build system or application code. The only automation is `scripts/check_skills.py`, a static checker for the skill files that runs in CI — see [Static checks](#static-checks).
 
 ## Repository Structure
 
@@ -44,6 +44,13 @@ skills/
       providers-universe.md    # Stage 2: yba_aws/gcp/azure/onprem_provider, *_storage_config, yba_universe, yba_backup/backup_schedule/restore
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
+.skills-lint.json             # Known exceptions for the static checks (each needs a rule and a reason)
+REVIEW.md                     # What to check when reviewing a change here (for humans and review bots)
+scripts/
+  check_skills.py             # Static checks for skills (frontmatter, manifest/README sync, size, links, version pins)
+  test_check_skills.py        # Tests for the checker (unittest, standard library only)
+.github/workflows/
+  skills-lint.yml             # Runs scripts/check_skills.py on every pull request and on main
 ```
 
 ## Skill File Format
@@ -68,6 +75,77 @@ The `name` and `description` fields in frontmatter must stay in sync with the co
 - When adding a new skill, also register it in `.claude-plugin/marketplace.json` under the `plugins` array.
 - Skills should include: anti-patterns with alternatives, schema/design patterns with SQL/code examples, and operational guidance.
 - Keep skills self-contained — each skill folder should be independently useful without requiring the other.
+- Before writing or changing skill content, read [Writing effective skills](#writing-effective-skills) below.
+
+## Writing effective skills
+
+The [static checks](#static-checks) catch structural problems. The rules here cover what a checker cannot: whether the skill changes what the agent produces. They condense Anthropic's skill-authoring guide, the Agent Skills specification and the `skill-creator` skill (links at the end of this section), plus the conventions of this repository.
+
+### Start from a failure, not from a topic
+
+1. Run a representative task (design a schema, wire a driver, plan a deployment) with a capable model and **no** skill loaded. Record what it gets wrong or leaves out.
+2. Write only the content that fixes those failures. The model already knows PostgreSQL, Cassandra, Kubernetes, Terraform and the language ecosystems — document what is specific to YugabyteDB.
+3. Re-run the same task with the skill loaded and compare. Keep the task prompts: they are the skill's regression tests. Repeat with every model the skill is expected to serve — guidance that is enough for a large model can be too thin for a small one.
+
+### Description — the only text the agent sees before choosing a skill
+
+- Say what the skill does **and** when to use it, in the third person. Pattern used here: `<what it covers>. Use when <situations>. Triggers on <words the user is likely to type>.`
+- List concrete triggers: product names, commands, file types, error codes, ports (`5433`, `9042`), API and resource names. The agent matches the request against every installed skill's description; a vague description means the skill is never loaded. Under-triggering is the common failure — list more triggers rather than fewer.
+- Describe the user's situation, not the skill's structure or history.
+- Keep the existing noun-phrase names (`ysql`, `yb-k8s-operator`, `yba-api`); consistency across the collection matters more than the form.
+- `.claude-plugin/marketplace.json` must carry the identical description (`python3 scripts/check_skills.py --fix-descriptions`).
+
+### Body — a table of contents, not a manual
+
+- `SKILL.md` is loaded whole once the skill triggers, so every line competes with the user's task. The checker warns at 400 lines and fails at 500; most skills should be shorter.
+- Lead with the decisions that differ from the upstream technology (YSQL: sharding, smart drivers, retries; the operator: CRD shapes, multi-cluster networking). No introductions, no definitions the model already has.
+- Move long code, per-language variants and endpoint catalogues into `references/<topic>.md`, linked directly from `SKILL.md`. Keep new references one level deep — a reference file should not point to another reference file. (The `yba-api`, `yba-terraform` and `yb-k8s-operator` sets already do this and are grandfathered, not a pattern to copy; `yba-terraform` does it deliberately, as a two-stage workflow. Those links are not listed here, because a hand-kept list goes stale — `RF003` resolves every sibling pointer inside `references/` instead, so a rename breaks the build rather than an agent. No reference file points into another *skill's* set, and none should.) Put a contents list at the top of any reference longer than about 100 lines so a partial read still shows its scope.
+- Split references by domain (`smart-drivers.md`, `retry-patterns.md`), not by size, so the agent loads only the file the task needs.
+
+### Instructions the agent can act on
+
+- Imperative sentences. One term per concept throughout (`tserver`, not `tserver` / `node` / `server` interchangeably).
+- Give the reason in one clause instead of capitalised ALWAYS / NEVER; the reason lets the agent handle the case the rule did not foresee.
+- Match specificity to risk. Fragile or irreversible steps (DDL migrations, upgrades, IAM setup) get one exact command and "do not add flags". Design choices get one default plus the condition for the alternative. Do not list five valid libraries — name one and say when to use another.
+- Show input → output examples where style matters (schema shapes, connection strings, report layouts). One concrete example beats a paragraph of description.
+- For multi-step procedures, give a numbered checklist the agent can copy and tick off, and end it with a verification step (`EXPLAIN (ANALYZE, DIST)`, `kubectl get …`, `terraform plan`) so mistakes surface before the user sees them.
+- Keep the anti-patterns table — `what people do | why it breaks on YugabyteDB | do this instead`. It is the highest-value section in most skills here.
+
+### Content that goes stale
+
+- No exact version pins for dependencies. Name the package or coordinate (`psycopg-yugabytedb`, `com.yugabyte:r2dbc-postgresql`) and tell the agent to resolve that package's latest release from its registry at generation time. Do not filter releases by an assumed suffix: the YugabyteDB forks are separate packages, and valid version formats differ across registries. Preserve deliberate compatibility constraints and explain their purpose when adding or changing them: a `>=` lower bound a library needs, or a `~>` range that avoids a release with known bugs. Calendar-style YugabyteDB release numbers (`2024.2.1.0-b1`) are exempt anywhere on the line, including install commands; a 2.x release in a pin-shaped position still warns and should be baselined when deliberate.
+- No dates or "before / after version X" branches in the main text. Superseded guidance goes into a collapsed "Old patterns" block or is deleted.
+- Anything the agent must look up live (technical advisories, release notes, docs pages) gets the URL and an instruction to fetch it — never a memorised copy.
+
+### Review fixes: verify the behavior and every place that teaches it
+
+1. Read the complete review history and current diff. Reproduce each actionable finding on the current head before changing it; a review may describe an older revision, repeat another finding, or give the right concern with the wrong mechanism. Record which findings are already fixed, newly reproduced, or unsupported by evidence.
+2. Verify the affected driver's own package, documentation and published implementation. Do not generalize parameter spellings, host-list parsing, defaults, topology priorities or fallback behavior from another driver. One bootstrap address can support cluster discovery; missing explicit credentials do not prove failure if defaults or environment variables supply them. Where docs and examples disagree, test the package the agent will install and record the result.
+3. Keep the actionable rule and its caveat together in every independently loaded entrypoint. Search `SKILL.md`, references, related skills, troubleshooting tables and install examples after a fix. A caveat hidden in a reference does not constrain an agent that reads only `SKILL.md`; dependency conflicts need guards in both directions when skills can be used together.
+4. Describe dependency conflicts at the package/environment level. Distinguish distribution names, import names, optional extras and system libraries; do not infer compatibility from different installation directories. A separate virtualenv isolates workloads, but does not let incompatible dependencies coexist in one process. Preserve a working dependency set until the migration choice is clear.
+5. Test topology guidance for both normal operation and failure. Distinguish an equal-preference allowlist from prioritized fallback and cluster-wide fallback. Include multiple permitted placements when zone availability is required, and state what happens when none is live. Do not promise availability just because an example lists several hosts or zones.
+6. Exercise the examples agents will copy. Use extracted snippets with the relevant package where practical; check imports, required context and parser behavior. For retry helpers, verify transaction ownership, rollback order, operation- and commit-time transient failures, both retryable SQLSTATEs, permanent errors, exact attempt bounds, retry logging, and preservation of the final error without a final unnecessary sleep.
+7. Apply the smallest coherent fix across those locations, then rerun the original reproducer and relevant regressions. Do not add blanket rules to satisfy a single example, or assert that “all other examples” do something without checking them. Distinguish a documented guarantee, a source-derived mechanism and an observed test result.
+8. Keep the final PR description about the resulting behavior and validation. Remove superseded review-round narratives, stale test counts and incorrect warning inventories. State what was actually tested: source inspection, package-level tests, test doubles, compilation, live-cluster integration and fresh-model evaluation establish different things. Green CI does not prove technical examples are correct or guarantee reviewer approval. Respect the requested delivery scope; do not post review comments or trigger another reviewer unless requested.
+
+### Changing the static checker
+
+- Reproduce parser bugs with minimal input/output fixtures and check the relevant [YAML](https://yaml.org/spec/1.2.2/) or [CommonMark](https://spec.commonmark.org/0.31.2/) rule. Expected values must come from the format semantics, not from the checker itself. A temporary comparison against an independent parser is useful; keep the committed test suite and checker standard-library only.
+- Preserve valid input as well as rejecting invalid input. Cover scalars beginning below their keys, comment boundaries, paragraph breaks, indentation, quoted escapes, escaped physical newlines, whitespace-only block content, block-scalar headers/chomping and Unicode bounds. Test malformed variants alongside valid fixtures; a large generated set proves only the shapes it includes. Bound all frontmatter readers at the first terminating delimiter; blank lines are legal inside YAML, so do not infer the terminator from prose shape. Unknown fields are a separate semantic check, not a decoding failure.
+- Treat automatic rewriting as a separate behavior to test. Skip ambiguous multi-skill entries and refuse to rewrite malformed manifests. Start with a correct manifest and assert its bytes remain unchanged; start with a stale manifest and assert the exact decoded value is written; run the fixer again and assert it is a no-op. Undecodable values must produce diagnostics and must never reach the writer.
+- Use one fence interpretation for markdown checks, reference scans and placeholder scans. Include list markers on the opening fence's own line, nested lists, delimiter lengths, tilde fences and indented code. A fence-state error can both reject valid documentation and hide real findings later in the file.
+- Validate configuration containers, entries and field types before using them. Malformed JSON, missing reasons, non-object entries and non-string filters must report `CFG001` without crashing or suppressing unrelated findings. Invalid scalar escapes likewise need a diagnostic instead of an exception that discards the report. Exercise the CLI output and exit status as well as helpers.
+- Compare complete resolved paths, not basenames; test duplicate registrations and ensure the fixer leaves an invalid manifest unchanged. Reference targets must be files. Match complete skill names in installation commands.
+- Escape GitHub annotation data and properties according to the [Actions command protocol](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts) so a multiline finding remains one annotation.
+- Update `AGENTS.md`, `REVIEW.md`, tests and the PR description whenever behavior changes. Keep assertions proportional to the parser's supported subset; skipped structured values are not full YAML validation. Compare warning identities against the base branch, rather than equating equal counts with equal findings. Test overlapping PRs together in a temporary checkout before claiming merge compatibility; do not mix their unrelated fixes into one branch.
+
+### Before opening the PR
+
+1. `python3 scripts/check_skills.py` reports no errors (this is what CI enforces). It also prints warnings — the repo currently carries a few size warnings (SZ002/SZ003) that are expected; do not add new ones. `--strict` additionally fails on any warning; it does not distinguish old warnings from new ones. Compare findings with the base branch to establish that none were introduced, rather than requiring a strict run to pass on the repository as it stands.
+2. The description has been tested: a fresh session picks this skill for the target request and ignores it for a neighbouring one (YSQL vs YCQL, YBA API vs Terraform).
+3. The regression task from "Start from a failure" produces better output with the skill than without, and the PR says how it was checked.
+
+Sources: [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) (Anthropic), [Agent Skills specification](https://agentskills.io/specification), [skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator) (anthropics/skills).
 
 ## Installation Commands (for reference)
 
@@ -80,3 +158,29 @@ npx skills add yugabyte/yugabytedb-skills -s yba-api         # YBA REST API skil
 npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain # RAG / LangChain skill only
 npx skills add yugabyte/yugabytedb-skills -s yba-terraform   # YBA Terraform provider skill only
 ```
+
+## Static checks
+
+`scripts/check_skills.py` (standard library only) validates every skill and runs in CI on every pull request (`.github/workflows/skills-lint.yml`), together with its tests in `scripts/test_check_skills.py`. Run both locally from the repo root before opening a PR:
+
+```bash
+python3 scripts/check_skills.py                     # report; exit 1 on errors
+python3 scripts/check_skills.py --strict            # warnings fail too
+python3 scripts/check_skills.py --fix-descriptions  # sync marketplace.json descriptions from SKILL.md
+python3 -m unittest discover -s scripts -p 'test_*.py'   # the checker's own tests (run after changing it)
+```
+
+What it enforces (errors fail CI, warnings annotate the PR):
+
+| Group | Rules |
+| --- | --- |
+| Frontmatter | present and closed with `---` (both delimiters at column 0; the block runs to the first terminator, and blank lines inside it are legal YAML); ambiguous plain tokens (booleans, null, numeric/date-like values) require quotes (`FM007`) rather than guessing a YAML schema; supported YAML string scalars (plain, quoted, `|` / `>` block) decoded with paragraph folding, escaped line continuations and chomping; invalid Unicode escapes are errors — a nested mapping, sequence or flow collection is skipped without validating its contents, while a duplicate key or anything else that fails to decode is an error; every top-level key must be one the Agent Skills spec defines (`name`, `description`, `license`, `compatibility`, `allowed-tools`, `metadata`) — an unknown key is an error, which is what catches body text absorbed by a block that lost its closing `---`; `name` and `description` present; `name` equals the directory name, is kebab-case and at most 64 chars, and is not already used by another skill directory (`DUP001`); `description` at most 1024 chars (warn if under 60 chars or it never says when to use the skill). Every check on a *value* — the `name` and `description` rules above, `DUP001`, and the manifest comparison — is skipped when the block failed to decode (`FM001`/`FM007`): fix the parse error first. An unknown key (`FM008`) does not suppress them |
+| Manifest | malformed JSON or invalid plugin field types are reported as `MP006`; the fixer does not rewrite a malformed manifest. Every `skills/*/` directory is registered in `marketplace.json`; every entry's directory exists; manifest `name` and `description` equal the frontmatter (these two comparisons are skipped when the frontmatter itself failed to decode — fix that first). Register one skill per entry: every directory an entry lists counts as registered, and an entry listing more than one is an error (`MP005`). Directories are matched by full resolved path, and duplicate registrations are an error (`MP006`) that prevents description fixes. For such a multi-skill entry the name, description and README comparisons are skipped, because one name and one description cannot be measured against several skills; `--fix-descriptions` skips these ambiguous entries; the "directory exists" check (`MP002`) still runs on every path it lists |
+| README | every registered skill has an Available Skills row (error) and an `npx skills add … -s <name>` line (warn) |
+| Size | `SKILL.md` over 500 lines is an error; over 400 lines or 4000 words is a warning; a reference file over 600 lines is a warning |
+| References | every `references/…` path **named in `SKILL.md`** resolves — both markdown links and backtick-wrapped mentions like `` `references/foo.md` ``, ignoring fenced code so an illustrative path is not treated as a pointer (error). A pointer from one reference file to a sibling in the same `references/` directory must resolve as well (`RF003`, error), in either form and again outside fenced code; link fragments are removed before checking the target file (fragment existence is not validated). Every reference file must be linked or mentioned from `SKILL.md` (warn) — only a path that resolves counts, so fixing a broken link can reveal a second file that nothing points at |
+| Markdown | unclosed code fence (error; CommonMark fence delimiters and list indentation — an opener may follow the list marker on the same line; a fence is indented at most 3 spaces relative to its list item, and a closing fence uses the same character and at least the opening length, so a four-backtick block may contain three-backtick examples and four-space-indented code is not a fence); trailing newline; `{{…}}`, TODO, TBD, FIXME outside code (warn) |
+| Versions | five pin shapes are warned — `pip install x==1.2.3`, `<version>1.2.3</version>`, a Cargo/Terraform `x = "1.2.3"`, a Maven coordinate ending `:1.2-yb-N`, and a package.json `"version": "1.2.3"` — so name the coordinate and resolve the latest release at generation time. Compatibility constraints (`>=`, `~>`, `^`) are not flagged. Exempt: **calendar-style** YugabyteDB releases (`2024.2.1.0-b1`) anywhere, IPv4/CIDR strings, and any line containing a Hugo shortcode (`{{<`), since those carry docs-site version variables rather than a pin. A 2.x-style release (`2.20.7.0-b1`) in a pin-shaped position still warns — baseline it in `.skills-lint.json` when it is deliberate. The scan covers fenced code too, because that is where pins live |
+| Docs | the structure tree in this file mentions every skill directory (warn) |
+
+Known exceptions live in `.skills-lint.json`. The file must be a JSON object whose optional `ignore` field is an array of objects. Every entry needs non-empty string `rule` and `reason` fields; optional `path` and `match` filters must be strings. Malformed JSON or invalid shapes/types are reported as `CFG001`; invalid entries are discarded, and ignored findings are still printed as `IGNORED` so they stay visible.
