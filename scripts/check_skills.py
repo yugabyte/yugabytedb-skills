@@ -84,7 +84,7 @@ REF_MENTION = re.compile(r"`(references/[^`\s]+\.md)`")
 # A bare `<file>.md` naming a file beside the one it appears in, as a markdown
 # link or a backtick mention. Used only inside references/, where a pointer to a
 # sibling is invisible from SKILL.md and so escapes RF001.
-SIBLING_REF = re.compile(r"\]\((\.?/?[\w-]+\.md)\)|`([\w-]+\.md)`")
+SIBLING_REF = re.compile(r"\]\(((?:\./)?[\w-]+\.md)(?:#[^\s)]*)?\)|`([\w-]+\.md)`")
 PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\bTBD\b|\bFIXME\b|\bTODO\b|lorem ipsum", re.I)
 USAGE_HINT = re.compile(r"\buse (when|this skill|for)\b|\btriggers?\b|\bwhen\b", re.I)
 
@@ -121,6 +121,8 @@ class Checker:
         self.root = root
         self.findings: list[Finding] = []
         self.ignores = self._load_ignores()
+        self._manifest_cache: dict | None = None
+        self._manifest_failed = False
 
     # ---- infrastructure ------------------------------------------------------
     def _load_ignores(self) -> list[dict]:
@@ -175,6 +177,47 @@ class Checker:
     @staticmethod
     def read(path: Path) -> str:
         return path.read_text(encoding="utf-8")
+
+    def _load_manifest(self) -> dict:
+        """Validate the JSON shapes shared by the checker and the writer."""
+        if self._manifest_cache is not None:
+            return self._manifest_cache
+        path = self.root / ".claude-plugin" / "marketplace.json"
+
+        def invalid(message: str) -> None:
+            self._manifest_failed = True
+            self.add("MP006", "ERROR", ".claude-plugin/marketplace.json", None, message)
+
+        try:
+            data = json.loads(self.read(path)) if path.exists() else {"plugins": []}
+        except (ValueError, OSError) as exc:
+            invalid(f"cannot read marketplace manifest: {exc}")
+            data = {"plugins": []}
+        if not isinstance(data, dict) or not isinstance(data.get("plugins", []), list):
+            invalid("marketplace manifest must be an object with a 'plugins' array")
+            data = {"plugins": []}
+        valid = []
+        registered: set[Path] = set()
+        for index, plugin in enumerate(data.get("plugins", [])):
+            if not isinstance(plugin, dict):
+                invalid(f"plugin entry {index} must be an object")
+                continue
+            if any(key in plugin and not isinstance(plugin[key], str) for key in ("name", "description")):
+                invalid(f"plugin entry {index}: name and description must be strings when present")
+                continue
+            paths = plugin.get("skills")
+            if paths is not None and (not isinstance(paths, list)
+                                      or any(not isinstance(p, str) or not p.strip() for p in paths)):
+                invalid(f"plugin entry {index}: skills must be an array of non-empty paths or null")
+                continue
+            for entry in paths or []:
+                resolved = (self.root / entry).resolve()
+                if resolved in registered:
+                    invalid(f"skill directory is registered more than once: {entry}")
+                registered.add(resolved)
+            valid.append(plugin)
+        self._manifest_cache = dict(data, plugins=valid)
+        return self._manifest_cache
 
     # ---- frontmatter: a YAML subset, standard library only -------------------
     @staticmethod
@@ -272,6 +315,22 @@ class Checker:
             return Checker._quoted_scalar(lines, i, rest, end)
         rest = rest.rstrip()
         if not rest or rest.startswith("#"):
+            first = i + 1
+            while first < end and (not lines[first].strip() or lines[first].lstrip().startswith("#")):
+                first += 1
+            if first < end and lines[first].startswith(" "):
+                content = lines[first].lstrip()
+                quoted_key = False
+                if content.startswith(("'", '"')):
+                    close = Checker._closing_quote(content, content[0])
+                    quoted_key = close is not None and bool(re.match(r":(?:[ \t]|$)", content[close + 1:]))
+                structured = (SEQUENCE_ITEM.match(content) or content.startswith(FLOW_COLLECTION_START)
+                              or quoted_key or (re.search(r":(?:[ \t]|$)", content)
+                                                and not content.startswith(("'", '"'))))
+                if not structured:
+                    # A scalar can start below its key; indentation alone does
+                    # not make the value a mapping or sequence.
+                    return Checker._yaml_value(lines, first, content, end)
             # Null, or a nested mapping / sequence on the following lines. Blank
             # lines inside the block are legal. A block sequence may sit at the
             # key's own indentation ("allowed-tools:" then "- Read" at column 0),
@@ -286,6 +345,8 @@ class Checker:
         m = BLOCK_HEADER.match(rest)
         if m:
             return Checker._block_scalar(lines, i, m.group(1), m.group(2), end)
+        if rest.startswith(("|", ">")):
+            return None, i + 1, "invalid block scalar header"
         if rest[0] in FLOW_COLLECTION_START:
             # Skip it, and any continuation lines, the way a block collection is
             # skipped: the value is structured, not undecodable.
@@ -297,7 +358,8 @@ class Checker:
             return None, i + 1, f"unsupported YAML syntax: {rest[:40]}"
         value = Checker._strip_comment(rest)
         j = i + 1
-        while j < end:
+        comment_ended = value != rest
+        while j < end and not comment_ended:
             next_line = j
             while next_line < end and not lines[next_line].strip():
                 next_line += 1
@@ -306,10 +368,19 @@ class Checker:
                 break
             # One physical break folds to a space; empty lines preserve paragraph breaks.
             value += ("\n" * (next_line - j) if next_line > j else " ")
-            value += Checker._strip_comment(lines[next_line].strip())
+            continuation = lines[next_line].strip()
+            decoded = Checker._strip_comment(continuation)
+            value += decoded
+            comment_ended = decoded != continuation
             j = next_line + 1
-        if ": " in value or value.endswith(":"):
+        if re.search(r":(?:[ \t]|$)", value):
             return None, j, "plain scalar contains ': ' (YAML reads it as a nested mapping); quote the value"
+        # Avoid turning implicitly typed YAML into a different string in the
+        # manifest. Quote ambiguous tokens rather than choosing a YAML schema.
+        if (value.lower() in {"null", "~", "true", "false", "yes", "no", "on", "off",
+                              ".nan", ".inf", "+.inf", "-.inf"}
+                or re.fullmatch(r"[+-]?(?:[0-9][0-9_a-fA-FxXoObBeE.+:/ -]*|\.[0-9][0-9_eE+-]*)", value)):
+            return None, j, "plain scalar may have a non-string YAML type; quote the value"
         return value, j, None
 
     @staticmethod
@@ -428,12 +499,19 @@ class Checker:
             return None, i + 1, "invalid block scalar indicators"
         chomp = "-" if "-" in indicators else "+" if "+" in indicators else ""
         indent = next((int(c) for c in indicators if c.isdigit()), None)
+        if indent is None:
+            # Infer indentation before processing empty lines: spaces beyond
+            # this indentation are literal scalar content, even on blank lines.
+            for line in lines[i + 1:end]:
+                if line.strip():
+                    indent = len(line) - len(line.lstrip(" "))
+                    break
         raw: list[str] = []
         j = i + 1
         while j < end:
             line = lines[j]
             if not line.strip():
-                raw.append("")
+                raw.append(line[indent:] if indent else "")
                 j += 1
                 continue
             lead = len(line) - len(line.lstrip(" "))
@@ -441,7 +519,7 @@ class Checker:
                 if lead == 0:
                     break
                 indent = lead
-            if lead < indent:
+            if lead == 0 or lead < indent:
                 break
             raw.append(line[indent:])
             j += 1
@@ -532,21 +610,20 @@ class Checker:
     # ---- the checks ----------------------------------------------------------
     def run(self) -> None:
         skills_dir = self.root / "skills"
-        manifest_path = self.root / ".claude-plugin" / "marketplace.json"
         readme = self.read(self.root / "README.md") if (self.root / "README.md").exists() else ""
         agents = self.structure_tree(
             self.read(self.root / "AGENTS.md") if (self.root / "AGENTS.md").exists() else "")
 
-        manifest = json.loads(self.read(manifest_path)) if manifest_path.exists() else {"plugins": []}
+        manifest = self._load_manifest()
         # Index every directory an entry registers, not just the first: missing
         # the rest would report them as unregistered (MP001), which is wrong.
         # The name/description sync below is defined for one skill per entry, so
         # an entry listing more than one is reported rather than half-checked.
-        plugin_dirs: dict[str, dict] = {}
+        plugin_dirs: dict[Path, dict] = {}
         for p in manifest.get("plugins", []):
             paths = p.get("skills") or []
             for path in paths:
-                plugin_dirs.setdefault(Path(path).name, p)
+                plugin_dirs.setdefault((self.root / path).resolve(), p)
             if len(paths) > 1:
                 self.add("MP005", "ERROR", ".claude-plugin/marketplace.json", None,
                          f"plugin '{p.get('name')}' registers {len(paths)} skill directories; "
@@ -589,7 +666,7 @@ class Checker:
     def check_skill(self, d: Path, plugin_dirs: dict, readme: str, agents: str, names_seen: dict) -> None:
         skill_md = d / "SKILL.md"
         rel_dir = f"skills/{d.name}"
-        if not skill_md.exists():
+        if not skill_md.is_file():
             self.add("FM001", "ERROR", rel_dir, None, "SKILL.md is missing")
             return
         text = self.read(skill_md)
@@ -645,15 +722,15 @@ class Checker:
                          "description never says when to use the skill (no 'Use when' / 'Triggers on')")
 
         # -- manifest sync
-        plugin = plugin_dirs.get(d.name)
+        plugin = plugin_dirs.get(d.resolve())
         if plugin is None:
             self.add("MP001", "ERROR", rel_dir, None,
                      "not registered in .claude-plugin/marketplace.json")
         elif len(plugin.get("skills") or []) > 1:
             # MP005 already reports this entry's shape, once, against the
             # manifest. Its single name and description cannot be compared
-            # against several skill directories, and --fix-descriptions writes
-            # only skills[0], so MP003/MP004 here would be advice the fixer
+            # against several skill directories, and --fix-descriptions skips
+            # ambiguous entries, so MP003/MP004 here would be advice the fixer
             # cannot act on and RD001/RD002 would repeat one name per directory.
             pass
         else:
@@ -678,7 +755,8 @@ class Checker:
             if f"|`{plugin_name}`|" not in readme.replace(" ", ""):
                 self.add("RD001", "ERROR", "README.md", None,
                          f"no 'Available Skills' table row for `{plugin_name}`")
-            if f"-s {plugin_name}" not in readme:
+            if not re.search(r"\bnpx[ \t]+skills[ \t]+add[^\n]*[ \t]-s[ \t]+"
+                             + re.escape(plugin_name) + r"(?=[\s`]|$)", readme):
                 self.add("RD002", "WARN", "README.md", None,
                          f"no 'npx skills add ... -s {plugin_name}' install line")
 
@@ -702,36 +780,34 @@ class Checker:
 
         # -- references: links resolve, files are linked
         refs_dir = d / "references"
-        linked: set[str] = set()
+        linked: set[Path] = set()
         # Skip fenced code: a `references/<topic>.md` path shown inside a fence is
         # an illustration, not a pointer, and must not fail CI. MD003 filters the
         # same way.
         for i, line in self.outside_fences(text):
             for m in REF_LINK.finditer(line):
                 target = m.group(1)
-                if not (d / target).exists():
+                if not (d / target).is_file():
                     self.add("RF001", "ERROR", skill_md, i, f"link target does not exist: {target}")
                 else:
-                    # Only a reference that resolves counts as linking the file.
-                    # `linked` is keyed by basename, so adding a broken target
-                    # would hide RF002 for a real file of the same name in
-                    # another directory. Backtick mentions below do the same.
-                    linked.add(Path(target).name)
+                    # Track the resolved file, so another directory's file with
+                    # the same basename cannot hide an unlinked reference.
+                    linked.add((d / target).resolve())
             # Backtick-wrapped mentions (e.g. the "This skill includes" list) count
             # as references too — a stale one points the agent at a missing file
             # even though it is not markdown-link syntax.
             for m in REF_MENTION.finditer(line):
                 target = m.group(1)
-                if not (d / target).exists():
+                if not (d / target).is_file():
                     self.add("RF001", "ERROR", skill_md, i, f"referenced path does not exist: {target}")
                 else:
-                    linked.add(Path(target).name)
+                    linked.add((d / target).resolve())
         if refs_dir.is_dir():
             for f in sorted(refs_dir.glob("*.md")):
                 # `linked` already holds both forms a reference can take, so a
                 # bare substring test on the whole file adds nothing but false
                 # negatives: any longer path ending in this name would match.
-                if f.name not in linked:
+                if f.resolve() not in linked:
                     self.add("RF002", "WARN", f, None,
                              "reference file is never linked or mentioned from SKILL.md (agents will not find it)")
                 # A reference file pointing at a sibling is grandfathered in a
@@ -740,7 +816,7 @@ class Checker:
                 for i, line in self.outside_fences(self.read(f)):
                     for m in SIBLING_REF.finditer(line):
                         target = (m.group(1) or m.group(2)).lstrip("./")
-                        if target != f.name and not (refs_dir / target).exists():
+                        if target != f.name and not (refs_dir / target).is_file():
                             self.add("RF003", "ERROR", f, i,
                                      f"sibling reference does not exist: {target}")
                 self.check_markdown(f, is_skill_md=False)
@@ -775,13 +851,15 @@ class Checker:
     # ---- fixer ---------------------------------------------------------------
     def fix_descriptions(self) -> int:
         manifest_path = self.root / ".claude-plugin" / "marketplace.json"
-        manifest = json.loads(self.read(manifest_path))
+        manifest = self._load_manifest()
+        if self._manifest_failed:
+            return 0  # never rewrite a partially validated manifest
         changed = 0
         for p in manifest.get("plugins", []):
-            if not p.get("skills"):
+            if len(p.get("skills") or []) != 1:
                 continue
             skill_md = self.root / p["skills"][0] / "SKILL.md"
-            if not skill_md.exists():
+            if not skill_md.is_file():
                 continue
             fm, _, problems = self.frontmatter(self.read(skill_md))
             if any(rule in ("FM001", "FM007") for rule, _, _ in problems):
@@ -799,13 +877,17 @@ class Checker:
 
 # ---- reporting -----------------------------------------------------------------
 def report(findings: list[Finding], fmt: str) -> None:
+    def escape(value: str, *, property_value: bool = False) -> str:
+        value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        return value.replace(":", "%3A").replace(",", "%2C") if property_value else value
+
     order = {"ERROR": 0, "WARN": 1}
     for f in sorted(findings, key=lambda x: (x.ignored is not None, order[x.level], x.path, x.line or 0)):
         loc = f"{f.path}:{f.line}" if f.line else f.path
         if fmt == "github" and not f.ignored:
             kind = "error" if f.level == "ERROR" else "warning"
             line_attr = f",line={f.line}" if f.line else ""
-            print(f"::{kind} file={f.path}{line_attr},title={f.rule}::{f.msg}")
+            print(f"::{kind} file={escape(f.path, property_value=True)}{line_attr},title={f.rule}::{escape(f.msg)}")
         else:
             level = f"IGNORED({f.level})" if f.ignored else f.level
             tail = f"  [ignored: {f.ignored}]" if f.ignored else ""

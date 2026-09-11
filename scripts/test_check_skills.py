@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+import io
+from contextlib import redirect_stdout
 import re
 import shutil
 import subprocess
@@ -16,6 +18,18 @@ from pathlib import Path
 
 import check_skills
 from check_skills import Checker
+
+
+class ReportingTests(unittest.TestCase):
+    def test_github_annotation_escapes_multiline_data_and_properties(self):
+        output = io.StringIO()
+        finding = check_skills.Finding("FM004", "ERROR", "skills/a,b:c%/SKILL.md", 2,
+                                       "bad%name\r\n::warning::not another annotation", None)
+        with redirect_stdout(output):
+            check_skills.report([finding], "github")
+        self.assertEqual(output.getvalue(),
+                         "::error file=skills/a%2Cb%3Ac%25/SKILL.md,line=2,title=FM004::"
+                         "bad%25name%0D%0A::warning::not another annotation\n")
 
 
 class FrontmatterTests(unittest.TestCase):
@@ -246,6 +260,48 @@ class FrontmatterTests(unittest.TestCase):
                 _, _, problems = self.fm("---\ndescription: " + header + "\n  text\n---\n")
                 self.assertIn("FM007", [r for r, _, _ in problems])
 
+    def test_scalar_can_start_below_its_key(self):
+        for scalar in ('Use when reviewing schemas.', '"Use when reviewing schemas."',
+                       "'Use when reviewing schemas.'", '|-\n    Use when reviewing schemas.'):
+            with self.subTest(scalar=scalar):
+                fields, _, problems = self.fm('---\nname: demo\ndescription:\n  ' + scalar +
+                                               '\nlicense: MIT\n---\n')
+                self.assertEqual(problems, [])
+                self.assertEqual(fields['description'], 'Use when reviewing schemas.')
+                self.assertEqual(fields['license'], 'MIT')
+
+    def test_comment_terminates_plain_scalar(self):
+        for scalar in ('Use when reviewing schemas. # comment\n  extra',
+                       'Use when reviewing\n  schemas. # comment\n  extra'):
+            with self.subTest(scalar=scalar):
+                _, _, problems = self.fm('---\ndescription: ' + scalar + '\n---\n')
+                self.assertIn('FM007', [r for r, _, _ in problems])
+
+    def test_invalid_block_header_does_not_become_plain_text(self):
+        for header in ('>0', '|0', '>abc', '|222', '>+-'):
+            with self.subTest(header=header):
+                _, _, problems = self.fm('---\ndescription: ' + header + '\n  text\n---\n')
+                self.assertIn('FM007', [r for r, _, _ in problems])
+
+    def test_block_scalar_preserves_spaces_beyond_content_indent(self):
+        for header in ('|-', '>-'):
+            fields, _, problems = self.fm('---\ndescription: ' + header +
+                                          '\n  first\n    \n  last\nlicense: MIT\n---\n')
+            self.assertEqual(problems, [])
+            self.assertEqual(fields['description'], 'first\n  \nlast')
+            self.assertEqual(fields['license'], 'MIT')
+
+    def test_empty_block_does_not_consume_the_next_field(self):
+        fields, _, problems = self.fm('---\ndescription: |\nlicense: MIT\n---\n')
+        self.assertEqual(problems, [])
+        self.assertEqual(fields, {'description': '', 'license': 'MIT'})
+
+    def test_quoted_nested_mapping_key_remains_a_structured_value(self):
+        fields, _, problems = self.fm('---\nmetadata:\n  "team": database\nname: demo\n---\n')
+        self.assertEqual(problems, [])
+        self.assertIsNone(fields['metadata'])
+        self.assertEqual(fields['name'], 'demo')
+
 
 class FenceTests(unittest.TestCase):
     def fmap(self, text: str):
@@ -357,6 +413,56 @@ Done.
                       if not f.ignored and (level is None or f.level == level))
 
 
+    def test_ambiguous_yaml_types_cannot_be_written_as_description_strings(self):
+        for value in ("null", "true", "ON", "123", "1.5", "0xFF", ".nan", "2026-09-10"):
+            with self.subTest(value=value):
+                self.skill.write_text("---\nname: demo-skill\ndescription: " + value + "\n---\n")
+                before = self.manifest.read_bytes()
+                checker = Checker(self.root)
+                self.assertEqual(checker.fix_descriptions(), 0)
+                checker.run()
+                self.assertIn("FM007", self.rules(checker))
+                self.assertEqual(self.manifest.read_bytes(), before)
+                fields, _, problems = Checker.frontmatter(
+                    "---\ndescription: '" + value + "'\n---\n")
+                self.assertEqual(problems, [])
+                self.assertEqual(fields["description"], value)
+
+    def test_other_directory_with_same_basename_does_not_register_skill(self):
+        (self.root / "other" / "demo-skill").mkdir(parents=True)
+        data = json.loads(self.manifest.read_text())
+        data["plugins"][0]["skills"] = ["./other/demo-skill"]
+        self.manifest.write_text(json.dumps(data))
+        self.assertIn("MP001", self.rules(self.check()))
+
+    def test_duplicate_registration_is_error_and_fixer_preserves_manifest(self):
+        data = json.loads(self.manifest.read_text())
+        data["plugins"].append(dict(data["plugins"][0], description="wrong"))
+        data["plugins"][1]["skills"] = ["skills/demo-skill/../demo-skill"]
+        self.manifest.write_text(json.dumps(data))
+        before = self.manifest.read_bytes()
+        checker = Checker(self.root)
+        self.assertEqual(checker.fix_descriptions(), 0)
+        checker.run()
+        self.assertIn("MP006", self.rules(checker))
+        self.assertEqual(self.manifest.read_bytes(), before)
+
+    def test_install_command_requires_exact_skill_name_and_command(self):
+        for command in ("npx skills add x/y -s demo-skill-extra", "other -s demo-skill"):
+            with self.subTest(command=command):
+                (self.root / "README.md").write_text("|`demo-skill`|Demo|\n" + command + "\n")
+                self.assertIn("RD002", self.rules(self.check()))
+
+    def test_reference_identity_uses_whole_path_and_requires_file(self):
+        refs = self.skill.parent / "references"
+        (refs / "nested").mkdir(parents=True)
+        (refs / "notes.md").write_text("# Notes\n")
+        (refs / "nested" / "notes.md").write_text("# Other notes\n")
+        self.skill.write_text(self.SKILL + "[notes](references/nested/notes.md)\n")
+        self.assertIn("RF002", self.rules(self.check()))
+        self.skill.write_text(self.SKILL + "[directory](references/nested)\n")
+        self.assertIn("RF001", self.rules(self.check()))
+
     def test_fixer_preserves_correct_multiline_descriptions_and_is_idempotent(self):
         cases = [
             ('"Use when writing SQL.\n\n  Preserve this paragraph."',
@@ -410,6 +516,66 @@ Done.
         self.assertEqual(result.returncode, 1)
         self.assertIn("title=FM007", result.stdout)
         self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.manifest.read_bytes(), original)
+
+
+    def test_invalid_plain_or_block_scalar_cannot_reach_fixer(self):
+        for scalar in ('>0\n  Use when reviewing schemas.',
+                       'Use when reviewing schemas. # comment\n  extra'):
+            with self.subTest(scalar=scalar):
+                self.skill.write_text('---\nname: demo-skill\ndescription: ' + scalar + '\n---\n# Demo\n')
+                original = self.manifest.read_bytes()
+                self.assertEqual(Checker(self.root).fix_descriptions(), 0)
+                self.assertEqual(self.manifest.read_bytes(), original)
+                self.assertIn('FM007', self.rules(self.check(), 'ERROR'))
+
+    def test_indented_scalar_and_literal_spaces_survive_manifest_sync(self):
+        for scalar, expected in (('\n  Use when reviewing schemas.', 'Use when reviewing schemas.'),
+                                  (' |-\n  first\n    \n  last', 'first\n  \nlast')):
+            with self.subTest(scalar=scalar):
+                self.skill.write_text('---\nname: demo-skill\ndescription:' + scalar + '\n---\n# Demo\n')
+                self.write_manifest('stale')
+                self.assertEqual(Checker(self.root).fix_descriptions(), 1)
+                self.assertEqual(self.manifest_description(), expected)
+                self.assertEqual(Checker(self.root).fix_descriptions(), 0)
+
+    def test_sibling_link_fragments_do_not_hide_missing_files(self):
+        refs = self.skill.parent / 'references'
+        refs.mkdir()
+        (refs / 'guide.md').write_text('# Guide\n[missing](missing.md#setup) [present](./present.md#setup)\n')
+        (refs / 'present.md').write_text('# Setup\n')
+        self.skill.write_text(self.SKILL + '\n`references/guide.md` and `references/present.md`\n')
+        findings = [f for f in self.check().findings if f.rule == 'RF003']
+        self.assertEqual(len(findings), 1)
+        self.assertIn('missing.md', findings[0].msg)
+
+
+    def test_malformed_manifest_reports_diagnostics_and_cannot_be_rewritten(self):
+        valid = json.loads(self.manifest.read_text())['plugins'][0]
+        valid['description'] = 'stale'
+        cases = ['{', '[]', '{"plugins": null}', '{"plugins": "invalid"}',
+                 json.dumps({'plugins': [valid, None]}),
+                 json.dumps({'plugins': [dict(valid, description=42)]}),
+                 json.dumps({'plugins': [dict(valid, name=[])]}),
+                 json.dumps({'plugins': [dict(valid, skills='./skills/demo-skill')]}),
+                 json.dumps({'plugins': [dict(valid, skills=[None])]})]
+        for text in cases:
+            with self.subTest(text=text):
+                self.manifest.write_text(text)
+                original = self.manifest.read_bytes()
+                checker = Checker(self.root)
+                self.assertEqual(checker.fix_descriptions(), 0)
+                checker.run()
+                self.assertIn('MP006', self.rules(checker, 'ERROR'))
+                self.assertEqual(self.manifest.read_bytes(), original)
+
+    def test_fixer_does_not_choose_a_description_for_multiple_skills(self):
+        data = json.loads(self.manifest.read_text())
+        data['plugins'][0]['skills'].append('./skills/another')
+        data['plugins'][0]['description'] = 'ambiguous'
+        self.manifest.write_text(json.dumps(data))
+        original = self.manifest.read_bytes()
+        self.assertEqual(Checker(self.root).fix_descriptions(), 0)
         self.assertEqual(self.manifest.read_bytes(), original)
 
     def test_clean_repo_has_no_findings(self):
