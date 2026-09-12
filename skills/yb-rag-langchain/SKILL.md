@@ -7,105 +7,79 @@ metadata:
 
 # YugabyteDB + LangChain — Agent Guide
 
-Concise rules for building RAG and semantic search on YugabyteDB with LangChain. Follow these to avoid silent issues specific to this stack.
-
-## TL;DR — the six things that can bite you
-
-1. Use `PGVectorStore` (v2), **not** `PGVector` (v1). The v1 class lacks hybrid search and explicit metadata columns.
-2. YugabyteDB's ANN index is **`ybhnsw`**, but YSQL transparently translates `hnsw` → `ybhnsw`, so LangChain's `HNSWIndex` works unchanged. IVFFlat is still unsupported.
-3. PGVectorStore does **not** create vector or GIN indexes for you — call `apply_vector_index()` and (for hybrid search) `apply_hybrid_search_index()` after the table exists. No raw SQL needed for these.
-4. `HybridSearchConfig.primary_top_k` / `secondary_top_k` default to **4** and **silently override** the `k=` argument at search time. Set them explicitly.
-5. Metadata filtering only works on **explicit columns** (`metadata_columns=[...]`). Filters against the JSONB blob column are not pushed down.
-6. LangChain has **no native JOIN** between vector search and relational predicates. Use a `VIEW` or raw SQL for queries like "transactions > £100 AND notes match 'fraud'".
+Use `PGVectorStore` (the v2 integration) for new RAG and hybrid-search applications. `PGVector` is the older integration. The examples below target `langchain-postgres` 0.0.17; check the installed release before relying on filtering or hybrid-search behavior.
 
 ## Connection & dependencies
 
-- **Recommend YugabyteDB 2025.2 or later** for every new setup. Earlier releases have less complete pgvector support; do not help users build on older versions without first advising an upgrade.
-- YSQL listens on **port 5433** (not 5432).
-- `langchain_postgres` requires **psycopg3** (`psycopg[binary]`), not psycopg2.
-- `PGVectorStore` v2 requires a `PGEngine`, not a raw connection string.
+- For new deployments, use a supported YugabyteDB release with the required pgvector features; 2025.2 or later is the baseline for these examples. Check the [pgvector support and limitations](https://docs.yugabyte.com/stable/additional-features/pg-extensions/extension-pgvector/) for the deployed version before upgrading or troubleshooting an existing cluster.
+- YSQL normally listens on **5433**. Use the actual configured endpoint.
+- `langchain-postgres` declares upstream **`psycopg[binary]`** as a dependency; use `postgresql+psycopg://` in SQLAlchemy URLs.
+- **Check for the smart driver before installing RAG dependencies.** Keep `psycopg-yugabytedb` separate from upstream `psycopg`, `psycopg-binary`, and `psycopg-c`. If present, preserve the working environment and surface the choice: isolate RAG in another environment/process, or explicitly migrate the shared workload to upstream psycopg. Before migrating, fetch the [fork’s options and restrictions](https://docs.yugabyte.com/stable/develop/drivers-orms/python/yugabyte-psycopg3-reference/) and [upstream libpq options](https://www.postgresql.org/docs/current/libpq-connect.html): remove or translate every fork-only setting and alias in connection strings and keyword arguments. Package replacement alone is not a migration.
+- `PGVectorStore` requires a `PGEngine`, not a raw connection string. The following is a local-development example; configure credentials and TLS for deployment.
 
 ```python
 from langchain_postgres import PGEngine, PGVectorStore
-from langchain_postgres.v2.indexes import HNSWIndex
-from langchain_postgres.v2.hybrid_search_config import HybridSearchConfig
 
 engine = PGEngine.from_connection_string(
     "postgresql+psycopg://yugabyte:yugabyte@localhost:5433/yugabyte"
 )
 ```
 
-Enable the extension once per database:
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-## Creating the table (declare metadata columns up front)
-
-`init_vectorstore_table` creates the table. Declare any metadata fields you need to filter on as **explicit columns** — JSONB-only metadata is not filterable.
+For upstream random host selection, first check the loaded libpq with `psycopg.pq.version() >= 160000`. It returns a packed integer: libpq 16.2 is `160002`. Maintain an explicit permitted-host list: upstream does not discover tservers or enforce topology keys. This is an alternative connection URL; substitute real hosts and configure TLS before using it:
 
 ```python
+import psycopg
+
+if psycopg.pq.version() < 160000:
+    raise RuntimeError("Random host selection requires libpq 16 or later")
+cluster_url = (
+    "postgresql+psycopg://yugabyte:yugabyte@/yugabyte"
+    "?host=yb-tserver-0,yb-tserver-1&port=5433,5433"
+    "&load_balance_hosts=random"
+)
+# For a cluster deployment, replace the localhost engine creation above with:
+# engine = PGEngine.from_connection_string(cluster_url)
+```
+
+SQLAlchemy also accepts repeated `host=hostname:port` query parameters and converts them to libpq host/port lists; see [multiple-host URL formats](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#multiple-fallback-hosts). These SQLAlchemy URL forms differ from raw libpq keyword arguments.
+
+Verify new connections with `SELECT inet_server_addr(), inet_server_port()` and test host loss in a test cluster. All listed hosts being unavailable causes connection failure.
+
+## Create the table and store
+
+Choose the embedding model and dimensions together. Every stored vector and query vector must use the same model and dimension. For example, `text-embedding-3-large` produces 3072 dimensions by default; its `dimensions` option can shorten the output, not expand it to 4096. See the [embedding guide](https://developers.openai.com/api/docs/guides/embeddings). This example also requires `langchain-openai` and `OPENAI_API_KEY`.
+
+Explicit metadata columns are useful for typed predicates and B-tree indexes. The helper's catch-all metadata column is **JSON**, not JSONB. In 0.0.17, dictionary filters can address both explicit columns and keys inside that JSON column.
+
+```python
+from langchain_openai import OpenAIEmbeddings
 from langchain_postgres.v2.engine import Column
+from langchain_postgres.v2.hybrid_search_config import (
+    HybridSearchConfig,
+    reciprocal_rank_fusion,
+)
+from langchain_postgres.v2.indexes import HNSWQueryOptions
+
+embedding_model = OpenAIEmbeddings(
+    model="text-embedding-3-large", dimensions=3072
+)
+hybrid = HybridSearchConfig(
+    tsv_column="content_tsv",
+    primary_top_k=20,       # vector candidates before fusion
+    secondary_top_k=20,     # full-text candidates before fusion
+    fusion_function=reciprocal_rank_fusion,
+    fusion_function_parameters={"rrf_k": 60},
+)
 
 engine.init_vectorstore_table(
     table_name="embed1",
-    vector_size=4096,
-    metadata_columns=[
-        Column("username", "TEXT", nullable=True),
-    ],
-    metadata_json_column="langchain_metadata",  # JSONB catch-all
+    vector_size=3072,
+    metadata_columns=[Column("username", "TEXT", nullable=True)],
+    metadata_json_column="langchain_metadata",
     id_column="langchain_id",
     content_column="content",
     embedding_column="embedding",
-)
-```
-
-## Index creation (mandatory — PGVectorStore won't do it for you)
-
-Use the `PGVectorStore` helper methods, not raw SQL. YugabyteDB transparently maps the standard `hnsw` access method to `ybhnsw`, so the LangChain `HNSWIndex` class works as-is.
-
-```python
-from langchain_postgres.v2.indexes import HNSWIndex
-
-# ANN vector index — YSQL silently translates hnsw → ybhnsw
-store.apply_vector_index(
-    HNSWIndex(name="embed1_hnsw_idx", m=16, ef_construction=200)
-)
-# async equivalent:
-# await store.aapply_vector_index(HNSWIndex(...))
-
-# GIN index on the tsvector column for hybrid full-text search
-# (only call this if PGVectorStore was created with hybrid_search_config)
-store.apply_hybrid_search_index()
-# async equivalent:
-# await store.aapply_hybrid_search_index()
-```
-
-For explicit **metadata columns** there's no PGVectorStore helper — create a B-tree index via raw SQL:
-
-```sql
-CREATE INDEX IF NOT EXISTS embed1_username_idx ON embed1 (username);
-```
-
-After bulk loads, run `ANALYZE` so the planner picks up the new indexes:
-```sql
-ANALYZE embed1;
-```
-
-Query-time HNSW tuning:
-```sql
-SET hnsw.ef_search = 100;  -- higher = better recall, slower
-```
-
-## Instantiating the store with hybrid search
-
-**Critical**: set `primary_top_k` and `secondary_top_k` explicitly — otherwise you get 4 results regardless of `k=`.
-
-```python
-hybrid = HybridSearchConfig(
-    primary_top_k=10,    # vector-side candidates
-    secondary_top_k=10,  # full-text-side candidates
-    fusion_function_parameters={"k": 60},  # RRF default
+    hybrid_search_config=hybrid,
 )
 
 store = PGVectorStore.create_sync(
@@ -114,98 +88,141 @@ store = PGVectorStore.create_sync(
     table_name="embed1",
     metadata_columns=["username"],
     hybrid_search_config=hybrid,
+    index_query_options=HNSWQueryOptions(ef_search=100),
 )
 ```
 
-## Adding documents — use deterministic IDs
+Run table initialization once for a new table. It attempts `CREATE EXTENSION IF NOT EXISTS vector` and then creates the table; it is not an existing-table migration. Have an administrator enable the extension if needed. For an existing table, validate its columns and dimensions, then create the store without calling initialization. Do not set `overwrite_existing=True` to repair a mismatch: it drops the table.
 
-Random UUIDs cause duplicates on re-ingest. Hash the content + canonical metadata.
+Pass the same hybrid configuration to table initialization and store creation so the `content_tsv` column exists and is populated during ingestion. Direct SQL writes must maintain that column too. For a preexisting table without it, the library can compute text vectors on demand and build an expression GIN index instead.
+
+## Create indexes after creating the store
+
+The store does not automatically create ANN or full-text indexes. Exact vector search works without an ANN index; add indexes for the query workload. YugabyteDB maps `hnsw` to `ybhnsw`, so the LangChain index helper can be used:
 
 ```python
-import json, uuid
+from langchain_postgres.v2.indexes import HNSWIndex
+
+store.apply_vector_index(
+    HNSWIndex(name="embed1_hnsw_idx", m=16, ef_construction=200)
+)
+store.apply_hybrid_search_index(concurrently=True)
+```
+
+These are one-time index creation calls; inspect existing indexes before rerunning. Async equivalents are `aapply_vector_index()` and `aapply_hybrid_search_index()`. The GIN call explicitly requests concurrent creation, which makes the library use AUTOCOMMIT; its default transaction would make YugabyteDB downgrade the build to nonconcurrent. This matters when adding the index to an existing table receiving writes. See [index creation modes](https://docs.yugabyte.com/stable/api/ysql/the-sql-language/statements/ddl_create_index/). Vector index builds can block writes; `concurrently=True` does not make those online in YugabyteDB. IVFFlat is unsupported. Verify the target release's limitations before scheduling index creation.
+
+For frequently filtered explicit metadata, add an appropriate SQL index:
+
+```sql
+CREATE INDEX IF NOT EXISTS embed1_username_idx ON embed1 (username);
+ANALYZE embed1;
+```
+
+Run `ANALYZE` after bulk ingestion too. `HNSWQueryOptions` above applies `hnsw.ef_search` to searches on their own pooled connections; a `SET` issued on a different session does not configure the whole pool. ANN filtering can return fewer matches than requested; measure recall and inspect the actual plan.
+
+## Add documents with stable IDs
+
+In 0.0.17, ingestion upserts by ID. Use a stable source/chunk ID when edits should replace an existing document. A content-derived ID deduplicates identical content and metadata, but changed content produces a new ID and requires explicit cleanup of the old document.
+
+```python
+import json
+import uuid
 from langchain_core.documents import Document
 
 def doc_id(content: str, metadata: dict) -> str:
-    payload = content + json.dumps(metadata, sort_keys=True)
+    payload = json.dumps(
+        [content, metadata], sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False,
+    )
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, payload))
 
+pairs = [("Investigate suspected fraud", {"username": "alice", "department": "risk"})]
 docs = [Document(page_content=c, metadata=m) for c, m in pairs]
 ids = [doc_id(d.page_content, d.metadata) for d in docs]
 store.add_documents(docs, ids=ids)
 ```
 
-## Searching — filter on explicit columns only
+The ID column defaults to UUID. Hex-only UUID strings are valid too; arbitrary non-UUID identifiers need a deliberately chosen text ID column. Ingestion commits individual rows, so a failed batch can be partially stored; stable IDs make retrying the batch safe against duplicates.
+
+## Search and filter
+
+Hybrid candidate counts and final result count are different controls: `primary_top_k` and `secondary_top_k` cap candidates, while search-time `k` caps the fused output. Both candidate limits default to 4, so increasing `k` alone may leave too few candidates. RRF is selected explicitly above; the default fusion function in 0.0.17 is weighted-sum ranking.
+
+In 0.0.17, text search mutates the configuration's `fts_query`, and fusion mutates its parameters. Use a fresh configuration and parameter dictionary for each query so later or concurrent searches do not reuse the first query's text:
 
 ```python
-# Works: username is an explicit column
-results = store.similarity_search_with_score(
-    "fraud investigation notes",
-    k=10,
-    filter={"username": "alice"},
-)
+from dataclasses import replace
 
-# Does NOT filter: 'department' lives only in the JSONB blob
-# results = store.similarity_search(..., filter={"department": "risk"})  # ignored
+query = "fraud investigation notes"
+query_hybrid = replace(
+    hybrid,
+    fts_query=query,
+    fusion_function_parameters=dict(hybrid.fusion_function_parameters),
+)
+results = store.similarity_search_with_score(
+    query,
+    k=10,
+    filter={"username": "alice", "department": "risk"},
+    hybrid_search_config=query_hybrid,
+)
 ```
 
-If you need to filter on a JSONB-only field, either re-create the table with that field as an explicit column, or drop down to raw SQL.
+`username` addresses an explicit column; `department` addresses the catch-all JSON field in 0.0.17. Nested JSON keys use dotted paths. Confirm operator support in the installed release; never substitute raw user input into SQL. For vector-only search, pass `hybrid_search_config=None`. Hybrid fusion scores and vector distances have different meanings; do not apply one threshold to both.
 
-## Relational + vector queries (JOIN scenario)
+## Relational predicates and vector search
 
-LangChain cannot join across tables. For *"transactions > £100 where the depositor's notes mention fraud"*, use either:
+`PGVectorStore` does not expose a JOIN builder. Use a read-only view or parameterized SQL for relational predicates. Assume an existing `transactions(customer, amount)` table whose `customer` matches `embed1.username`.
 
-### Option A — VIEW + PGVectorStore
+A view can restrict eligible documents without duplicating them when a customer has multiple qualifying transactions:
 
 ```sql
-CREATE VIEW high_value_fraud_chunks AS
+CREATE VIEW high_value_chunks AS
 SELECT c.langchain_id, c.content, c.embedding, c.username, c.langchain_metadata
 FROM embed1 c
-JOIN transactions t ON t.customer = c.username
-WHERE t.amount > 100
-  AND c.content ILIKE '%fraud%';
+WHERE EXISTS (
+    SELECT 1 FROM transactions t
+    WHERE t.customer = c.username AND t.amount > 100
+);
 ```
 
-Then point a second `PGVectorStore` at the view (read-only).
+Create a separate `PGVectorStore` pointing at `high_value_chunks`, with the same embedding model and `metadata_columns=["username"]`. Use it only for reads and create indexes on the underlying table. Semantic matching comes from the query embedding; an `ILIKE '%fraud%'` condition would add a literal substring restriction, not semantic search.
 
-### Option B — raw SQL (recommended for one-off queries)
+For a one-off query, use psycopg with **libpq conninfo**, not a SQLAlchemy URL. Set `YSQL_CONNINFO` to the same database, with deployment credentials and TLS:
 
 ```python
+import os
 import psycopg
 
 query_vec = embedding_model.embed_query("fraud investigation")
-
-with psycopg.connect(conn_str) as conn, conn.cursor() as cur:
+vector_literal = json.dumps(query_vec)
+with psycopg.connect(os.environ["YSQL_CONNINFO"]) as conn, conn.cursor() as cur:
     cur.execute("""
-        SELECT c.content, c.username, t.amount,
-               1 - (c.embedding <=> %s::vector) AS score
+        SELECT c.content, c.username,
+               1 - (c.embedding <=> %s::vector) AS cosine_similarity
         FROM embed1 c
-        JOIN transactions t ON t.customer = c.username
-        WHERE t.amount > 100
+        WHERE EXISTS (
+            SELECT 1 FROM transactions t
+            WHERE t.customer = c.username AND t.amount > %s
+        )
         ORDER BY c.embedding <=> %s::vector
-        LIMIT 10
-    """, (query_vec, query_vec))
+        LIMIT %s
+    """, (vector_literal, 100, vector_literal, 10))
     rows = cur.fetchall()
 ```
 
-The `ybhnsw` index is still used by the planner here when the table is large enough — verify with `EXPLAIN`.
+Index use depends on the plan, selectivity, and release. Verify with `EXPLAIN (ANALYZE, DIST)`; table size alone does not guarantee an ANN index scan for a relationally filtered query.
 
-## Cheat sheet for common mistakes
+## Troubleshooting and version checks
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `index method "ivfflat" does not exist` | Used `ivfflat` | Use `HNSWIndex` via `apply_vector_index()` — YSQL maps `hnsw` → `ybhnsw` automatically |
-| Hybrid search returns no full-text matches | Forgot the tsv GIN index | Call `store.apply_hybrid_search_index()` (or `aapply_hybrid_search_index`) after table creation |
-| Search returns 4 results when `k=10` | Hybrid config defaulted | Set `primary_top_k=10, secondary_top_k=10` |
-| Filter returns unfiltered results | Filtered on JSONB-only field | Declare field as explicit `metadata_columns` |
-| Re-ingest creates duplicates | Random UUIDs | Pass deterministic `ids=` |
-| `connection refused on :5432` | Used PostgreSQL port | YSQL is on 5433 |
-| `ModuleNotFoundError: psycopg2` | Used psycopg2 with langchain_postgres | Install `psycopg[binary]` |
-| Slow vector search | Missing or unbuilt HNSW index | Create `ybhnsw`, then `ANALYZE` |
-| `dimensions=3072` mismatch on text-embedding-3-large | Default OpenAI output | Pass `OpenAIEmbeddings(model="text-embedding-3-large", dimensions=4096)` |
-| `invalid input syntax for type uuid` on `add_documents` | Passed a raw hex string as ID | Use `uuid.uuid5(uuid.NAMESPACE_DNS, payload)` — produces a deterministic UUID |
+| Symptom | Check | Action |
+| --- | --- | --- |
+| Connection refused | Host, configured port, TLS, reachability | YSQL commonly uses 5433; verify the actual endpoint |
+| `ModuleNotFoundError: psycopg2` | SQLAlchemy URL selected psycopg2 | Use `postgresql+psycopg://`; check smart-driver coexistence before installing upstream packages |
+| Too few hybrid results | Candidate limits, filters, available matches | Set both candidate limits and final `k`; inspect both searches |
+| Metadata filter fails | Installed library version, field type and path | Verify supported dictionary filters; use parameterized SQL for unsupported predicates |
+| Re-ingest duplicates | IDs change between runs | Use stable source/chunk IDs or content IDs with cleanup for edits |
+| Slow vector search | Missing index or unsuitable plan | Inspect `ybhnsw`, statistics, filters, and `EXPLAIN` |
+| Vector dimension mismatch | Embedding output versus column dimension | Align the model and schema; re-embed when changing models or dimensions |
+| Invalid UUID input | Identifier format versus ID column type | Use a valid UUID string or explicitly create a text ID column |
 
-## Version notes
-
-- **Always recommend YugabyteDB 2025.2 or later.** Earlier releases either lack `ybhnsw` entirely or ship with known pgvector limitations that have since been fixed. If a user reports being on an older version (2.20, 2.23, 2024.x), advise upgrading before debugging vector-index behaviour.
-- `langchain_postgres` **≥ 0.0.14** for `PGVectorStore` v2; verify `from langchain_postgres import PGVectorStore` resolves.
-- `PGEngine.from_connection_string()` accepts a SQLAlchemy URL — use the `postgresql+psycopg://` driver prefix.
+`PGVectorStore` is exported by `langchain-postgres` 0.0.14, but this guide's filtering and hybrid behavior was checked against 0.0.17. Resolve a compatible release and verify its APIs before generating code. Implementation references: [vector store](https://github.com/langchain-ai/langchain-postgres/blob/main/langchain_postgres/v2/async_vectorstore.py) and [hybrid configuration](https://github.com/langchain-ai/langchain-postgres/blob/main/langchain_postgres/v2/hybrid_search_config.py); these links track development, so use the installed package source when behavior differs.
