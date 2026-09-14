@@ -11,7 +11,7 @@ Use `PGVectorStore` (the v2 integration) for new RAG and hybrid-search applicati
 
 ## Connection & dependencies
 
-- For new deployments, use a supported YugabyteDB release with the required pgvector features; 2025.2 or later is the baseline for these examples. Check the [pgvector support and limitations](https://docs.yugabyte.com/stable/additional-features/pg-extensions/extension-pgvector/) for the deployed version before upgrading or troubleshooting an existing cluster.
+- For new deployments, use a supported YugabyteDB release with the required pgvector features; 2025.2 or later is the baseline for these examples. On an older release (2.20, 2.23, 2024.x), stop and advise an upgrade before debugging vector-index behavior: `ybhnsw` is either unavailable or subject to limitations fixed in later releases. Check the [pgvector support and limitations](https://docs.yugabyte.com/stable/additional-features/pg-extensions/extension-pgvector/) for the deployed version before upgrading or troubleshooting an existing cluster.
 - YSQL normally listens on **5433**. Use the actual configured endpoint.
 - `langchain-postgres` declares upstream **`psycopg[binary]`** as a dependency; use `postgresql+psycopg://` in SQLAlchemy URLs.
 - **Check for the smart driver before installing RAG dependencies.** Keep `psycopg-yugabytedb` separate from upstream `psycopg`, `psycopg-binary`, and `psycopg-c`. If present, preserve the working environment and surface the choice: isolate RAG in another environment/process, or explicitly migrate the shared workload to upstream psycopg. Before migrating, fetch the [fork’s options and restrictions](https://docs.yugabyte.com/stable/develop/drivers-orms/python/yugabyte-psycopg3-reference/) and [upstream libpq options](https://www.postgresql.org/docs/current/libpq-connect.html): remove or translate every fork-only setting and alias in connection strings and keyword arguments. Package replacement alone is not a migration.
@@ -28,16 +28,16 @@ engine = PGEngine.from_connection_string(
 For upstream random host selection, first check the loaded libpq with `psycopg.pq.version() >= 160000`. It returns a packed integer: libpq 16.2 is `160002`. Maintain an explicit permitted-host list: upstream does not discover tservers or enforce topology keys. This is an alternative connection URL; substitute real hosts and configure TLS before using it:
 
 ```python
-import psycopg
-
-if psycopg.pq.version() < 160000:
-    raise RuntimeError("Random host selection requires libpq 16 or later")
-cluster_url = (
-    "postgresql+psycopg://yugabyte:yugabyte@/yugabyte"
-    "?host=yb-tserver-0,yb-tserver-1&port=5433,5433"
-    "&load_balance_hosts=random"
-)
 # For a cluster deployment, replace the localhost engine creation above with:
+# import psycopg
+#
+# if psycopg.pq.version() < 160000:
+#     raise RuntimeError("Random host selection requires libpq 16 or later")
+# cluster_url = (
+#     "postgresql+psycopg://yugabyte:yugabyte@/yugabyte"
+#     "?host=yb-tserver-0,yb-tserver-1&port=5433,5433"
+#     "&load_balance_hosts=random"
+# )
 # engine = PGEngine.from_connection_string(cluster_url)
 ```
 
@@ -190,6 +190,7 @@ Create a separate `PGVectorStore` pointing at `high_value_chunks`, with the same
 For a one-off query, use psycopg with **libpq conninfo**, not a SQLAlchemy URL. Set `YSQL_CONNINFO` to the same database, with deployment credentials and TLS:
 
 ```python
+import json
 import os
 import psycopg
 
@@ -224,5 +225,7 @@ Index use depends on the plan, selectivity, and release. Verify with `EXPLAIN (A
 | Slow vector search | Missing index or unsuitable plan | Inspect `ybhnsw`, statistics, filters, and `EXPLAIN` |
 | Vector dimension mismatch | Embedding output versus column dimension | Align the model and schema; re-embed when changing models or dimensions |
 | Invalid UUID input | Identifier format versus ID column type | Use a valid UUID string or explicitly create a text ID column |
+
+Confirm the YugabyteDB release before investigating index or plan behavior: on 2.20, 2.23, or 2024.x, advise upgrading first rather than debugging `ybhnsw` on a release that lacks it.
 
 `PGVectorStore` is exported by `langchain-postgres` 0.0.14, but this guide's filtering and hybrid behavior was checked against 0.0.17. Resolve a compatible release and verify its APIs before generating code. Implementation references: [vector store](https://github.com/langchain-ai/langchain-postgres/blob/main/langchain_postgres/v2/async_vectorstore.py) and [hybrid configuration](https://github.com/langchain-ai/langchain-postgres/blob/main/langchain_postgres/v2/hybrid_search_config.py); these links track development, so use the installed package source when behavior differs.
