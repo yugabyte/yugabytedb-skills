@@ -372,12 +372,13 @@ Acquiring the snapshot can wait out the configured maximum clock skew (500ms by 
 Allow read-only queries to use a nearby replica; lagging or unavailable followers can cause fallback to another replica or the leader:
 ```sql
 SET yb_read_from_followers = true;
-SET yb_follower_read_staleness_ms = 30000; -- 30s; recommended lower bound: 2x raft heartbeat (1000ms with defaults)
+SET yb_follower_read_staleness_ms = 30000; -- 30s; check clock-skew constraints before reducing
 SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;
 SELECT * FROM analytics WHERE region = 'us-east'; -- eligible for follower reads
 ```
 - **Must be in a READ ONLY transaction** — follower reads are silently ignored in read-write transactions.
 - Staleness applies even when reading from the leader — all reads are stale by `yb_follower_read_staleness_ms`.
+- When reducing staleness, satisfy the deployed release's clock-skew constraint as well as the documented heartbeat recommendation. The [2025.2 transaction manager](https://github.com/yugabyte/yugabyte-db/blob/2025.2/src/yb/yql/pggate/pg_txn_manager.cc#L333-L339) requires `yb_follower_read_staleness_ms * 1000 > 2 * max_clock_skew_usec`: with the default 500,000 microseconds of maximum clock skew, use strictly more than 1000 ms.
 - Ideal for dashboards, analytics, and read replicas where sub-second freshness is not required.
 - These session settings also affect later transactions; reset them before returning a connection to a pool. Follower reads do not by themselves give multiple READ COMMITTED statements one stable snapshot. See [follower-read behavior](https://docs.yugabyte.com/stable/develop/build-global-apps/follower-reads/) and [isolation interaction](https://docs.yugabyte.com/stable/architecture/transactions/read-committed/).
 

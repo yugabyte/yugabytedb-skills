@@ -32,7 +32,7 @@ conn = psycopg.connect(
     "topology_keys=aws.us-east.us-east-1a,aws.us-east.us-east-1b"
 )
 ```
-Pooling: `pip install "psycopg-yugabytedb[pool]"`, then use `psycopg_pool.ConnectionPool(<same conninfo>, min_size=4, max_size=20)` as usual. The pool opens each connection through `psycopg.connect()`, which this package provides, so pooled connections are load-balanced like direct ones.
+Pooling: `pip install "psycopg-yugabytedb[pool]"`, then `import psycopg_pool` before using `psycopg_pool.ConnectionPool(<same conninfo>, min_size=4, max_size=20)`. The pool opens each connection through `psycopg.connect()`, which this package provides, so pooled connections are load-balanced like direct ones.
 
 ### psycopg3 traps
 
