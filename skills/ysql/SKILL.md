@@ -307,10 +307,13 @@ Choose `statement_timeout` and `idle_in_transaction_session_timeout` from the ap
 
 ```python
 # psycopg3 (psycopg-yugabytedb)
+import psycopg
+
 conn = psycopg.connect("...",
     options="-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000")
 
 # psycopg2 alternative (psycopg2-yugabytedb) - use one driver, not both:
+# import psycopg2
 # conn = psycopg2.connect("...",
 #     options="-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000")
 ```
