@@ -212,7 +212,7 @@ Bucket design recommendations:
 - `SPLIT AT VALUES` is optional but recommended for predictable initial distribution
 - Keep bucket expression first in the index key
 - Bucketing by timestamp distributes distinct timestamp values; many rows sharing one timestamp still hit one bucket
-- Global ordered reads need merging across buckets. Automatic merge scans depend on the release and its planner settings (`yb_max_merge_scan_streams`, formerly `yb_max_saop_merge_streams`, plus derived-predicate settings in earlier releases); inspect `EXPLAIN` for merge-stream fields rather than assuming a sort-free plan. See [bucket-based indexes](https://docs.yugabyte.com/stable/develop/data-modeling/bucket-based-index-ysql/) and the target release notes for setup
+- Global ordered reads need merging across buckets. Automatic merge scans depend on the release and its planner settings (`yb_max_merge_scan_streams`, formerly `yb_max_saop_merge_streams`, plus the derived-predicate settings `yb_enable_derived_saops` and `yb_enable_derived_equalities`, introduced alongside it in the v2025.2 series); inspect `EXPLAIN` for merge-stream fields rather than assuming a sort-free plan. See [bucket-based indexes](https://docs.yugabyte.com/stable/develop/data-modeling/bucket-based-index-ysql/) and the target release notes for setup
 
 ### Geo-Distribution
 
@@ -430,7 +430,7 @@ SELECT * FROM (
 ) sub ORDER BY timestamp DESC LIMIT 10;
 ```
 
-Bucket-based scan optimizations are version-dependent and were introduced as preview/early-access features in the v2025.2 series. For v2025.2.3 and later, evaluate these session settings with representative queries; the earlier `yb_max_saop_merge_streams` name is deprecated in favor of `yb_max_merge_scan_streams`. Check the deployed patch release and [bucket-based index documentation](https://docs.yugabyte.com/stable/develop/data-modeling/bucket-based-index-ysql/) before enabling them.
+Bucket-based scan optimizations are version-dependent and were introduced as preview/early-access features in the v2025.2 series. For v2025.2.3 and later, evaluate these session settings with representative queries; the earlier `yb_max_saop_merge_streams` name is deprecated in favor of `yb_max_merge_scan_streams`. Check the deployed patch release and [bucket-based index documentation](https://docs.yugabyte.com/stable/develop/data-modeling/bucket-based-index-ysql/) before enabling them. `yb_max_merge_scan_streams`, `yb_enable_derived_saops`, and `yb_enable_derived_equalities` are defined only in the v2025.2 series and later; on an earlier release each `SET` fails with `unrecognized configuration parameter`, so the block aborts at the first missing setting rather than degrading. Confirm the deployed release before running it as a block.
 
 ```sql
 ANALYZE events;
