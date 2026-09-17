@@ -62,6 +62,15 @@
       "skills": [
         "./skills/yb-rag-langchain"
       ]
+    },
+    {
+      "name": "yb-technical-advisories",
+      "description": "Use when checking whether a YugabyteDB or YugabyteDB Anywhere (YBA) deployment is affected by any currently published Technical Advisory (TA), before or after an upgrade, or during routine health/version checks. Triggers on \"technical advisory\", \"TA-#####\", \"is my version affected\", \"known issues for this version\", \"TA-CL-#####\"/\"TA-REOL-#####\", or any request to check a YugabyteDB/YBA version against published advisories. Always fetches the live advisory list from docs.yugabyte.com rather than relying on a memorized list, because new advisories are published continuously.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yb-technical-advisories"
+      ]
     }
   ]
 }
