@@ -1,5 +1,5 @@
 ---
-name: operator
+name: yb-k8s-operator
 description: Use when provisioning, managing, or troubleshooting YugabyteDB universes on Kubernetes via the YugabyteDB Kubernetes Operator and YugabyteDB Anywhere CRDs (YBUniverse, YBProvider, Release, Backup, StorageConfig, PitrRestore, DrConfig, etc.). Triggers on kubectl apply, Helm install of yugaware, operator CRDs, or any mention of YugabyteDB with Kubernetes.
 ---
 
@@ -9,7 +9,7 @@ description: Use when provisioning, managing, or troubleshooting YugabyteDB univ
 - `references/crd-examples.md` — complete YAML examples for every CRD
 - `references/workflows.md` — end-to-end provisioning, upgrade, backup, and DR workflows
 - `references/kubeconfig-secrets.md` — create and rotate kubeconfig secrets for multi-cluster providers. **Always follow this guidance; do not create generic kubeconfig secrets.**
-- `references/multi-cluster-service-mesh.md` — Helm overrides and pod address templates for Istio and Cilium
+- `references/multi-cluster.md` — Helm overrides and pod address templates for Istio and Cilium
 
 **Note:** This skill covers the YBA Kubernetes Operator (commercial). It does not fully apply to the YugabyteDB OSS Kubernetes Operator, which has fewer CRDs and features.
 
@@ -105,7 +105,7 @@ Status: `status.state`, `status.message`.
 
 Kubeconfig secrets must contain a single key `kubeconfig` with complete kubeconfig YAML. Use long-lived service account tokens — YBA does not support short-lived token plugins. See [references/kubeconfig-secrets.md](references/kubeconfig-secrets.md) for the full procedure.
 
-For multi-cluster service mesh (Istio / Cilium), see [references/multi-cluster-service-mesh.md](references/multi-cluster-service-mesh.md).
+For multi-cluster service mesh (Istio / Cilium), see [references/multi-cluster.md](references/multi-cluster.md).
 
 ### YBCertificate
 
