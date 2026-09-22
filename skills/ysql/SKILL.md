@@ -8,6 +8,7 @@ description: Use when writing or reviewing SQL, schema definitions, or applicati
 **This skill includes:**
 - `references/smart-drivers.md` — connection examples for Python, Java, Go, Node.js
 - `references/retry-patterns.md` — transaction retry code in Python and Java
+- `references/bnl-joins.md` — Batched Nested Loop join design implications, GUC defaults, and diagnosis
 
 YugabyteDB is a distributed, PostgreSQL-compatible database (YSQL on port 5433) that is **ACID-compliant**, **highly available**, **horizontally scalable**, and supports **hash/range sharding** of tables and indexes. Every design choice should balance read efficiency, write scalability, and operational cost.
 
@@ -321,19 +322,9 @@ Key metrics: `Storage Read Requests` (RPCs), `Storage Rows Scanned`, and scan ty
 
 ### Join Strategies: Nested Loop vs Batched Nested Loop (BNL)
 
-YugabyteDB supports the standard PostgreSQL join methods (Nested Loop, Hash Join, Merge Join) plus a YB-specific one: **Batched Nested Loop Join (BNL)**.
+YugabyteDB supports the standard PostgreSQL join methods (Nested Loop, Hash Join, Merge Join) plus a YB-specific one: **Batched Nested Loop Join (BNL)**, which batches inner-table lookups into `= ANY(ARRAY[...])` calls instead of one RPC per outer row.
 
-A plain `Nested Loop` re-queries the inner table once per outer row, and each of those is a separate network RPC — so it degrades fast as the outer side grows. BNL batches up to `yb_bnl_batch_size` outer keys into one `= ANY(ARRAY[...])` lookup instead.
-
-Design implications for schema and query authors:
-- **Index the inner join column.** BNL needs an index to batch lookups against; without one the join falls back to a scan per outer row. This is the same requirement as the foreign-key indexing rule above.
-- **Keep join conditions batchable** — a plain equality on the raw inner column. Wrapping the *inner* column in a function/expression, or joining on a non-equality operator, prevents batching (the same pushdown-defeating pattern that breaks index usage). Put any computed expression on the outer side, or persist and index the computed value.
-- **Keep statistics current.** If the planner estimates ~1 outer row it sees no reason to batch. `ANALYZE` after bulk loads and schema changes.
-- **Check `yb_bnl_batch_size` on older clusters** — it defaults to `1` (BNL **off**) on 2.20 and earlier, and `1024` from 2.21 / 2024.2 onward.
-
-Note that `SET enable_nestloop = off` does **not** disable BNL on 2.21+ — BNL is a separate join strategy there, and the `pg_hint_plan` hints differ (`NestLoop(...)` = unbatched, `YBBatchedNL(...)` = batched).
-
-> **Diagnosing a plan that should batch but doesn't:** use `yb-query-analysis` — it owns performance investigation, and [`query-tuning.md`](../yb-query-analysis/references/query-tuning.md) has the GUCs and remediation. It draws on `explain-plan-analyzer` (Stage 3b) for reading the join nodes.
+> **Design implications, GUC defaults, and diagnosing a plan that should batch but doesn't:** see [references/bnl-joins.md](references/bnl-joins.md)
 
 ### Long-Running Read Snapshots
 For batch jobs that need consistent reads without contention:
