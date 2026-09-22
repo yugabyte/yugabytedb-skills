@@ -30,13 +30,13 @@ Establish two things before querying anything:
 
 | Signal | Deployment | Metrics source | SQL access |
 |---|---|---|---|
-| YBA host mentioned, `X-AUTH-YW-API-TOKEN`, `yb-platform` namespace, universe name | **YugabyteDB Anywhere** | YBA bundled Prometheus / metrics proxy | Direct host:5433, or `kubectl exec`/port-forward on K8s — see [`references/access-yba-k8s.md`](../yb-query-analysis/references/access-yba-k8s.md) |
-| "Aeon" / "YugabyteDB Managed" | **Aeon** | curated `cluster-metrics` API only (no full Prometheus) → Performance Advisor/Insights | live YSQL via allowlist; see `yb-query-analysis` → `references/aeon-access.md` |
+| YBA host mentioned, `X-AUTH-YW-API-TOKEN`, `yb-platform` namespace, universe name | **YugabyteDB Anywhere** | YBA bundled Prometheus / metrics proxy | Direct host:5433, or `kubectl exec`/port-forward on K8s — see [`access-yba-k8s.md`](../yb-query-analysis/references/access-yba-k8s.md) |
+| "Aeon" / "YugabyteDB Managed" | **Aeon** | curated `cluster-metrics` API only (no full Prometheus) → Performance Advisor/Insights | live YSQL via allowlist; see `yb-query-analysis` → [`aeon-access.md`](../yb-query-analysis/references/aeon-access.md) |
 | Podman/Docker/self-managed, own Prometheus | **Self-managed** | standalone Prometheus or direct node scrape | direct host:5433 |
 
 **Access axes** (independent — you may have one and not the other):
-- **Live SQL access?** — can you reach YSQL (`ysqlsh`/`psql` on 5433)? On YBA-K8s this means `kubectl exec` into a tserver pod or a port-forward — see [`references/access-yba-k8s.md`](../yb-query-analysis/references/access-yba-k8s.md). If you have no live SQL, fall back to paste-mode (the user runs queries and pastes output — each `yb-query-analysis` reference has a paste block).
-- **Metrics access?** — can you reach a Prometheus (`:9090`) or the YBA metrics proxy? See `yb-metrics-analysis` → `references/data-sources.md`.
+- **Live SQL access?** — can you reach YSQL (`ysqlsh`/`psql` on 5433)? On YBA-K8s this means `kubectl exec` into a tserver pod or a port-forward — see [`access-yba-k8s.md`](../yb-query-analysis/references/access-yba-k8s.md). If you have no live SQL, fall back to paste-mode (the user runs queries and pastes output — each `yb-query-analysis` reference has a paste block).
+- **Metrics access?** — can you reach a Prometheus (`:9090`) or the YBA metrics proxy? See `yb-metrics-analysis` → [`data-sources.md`](../yb-metrics-analysis/references/data-sources.md).
 
 Record what you have. The two tracks below run against whatever access exists; note any track you cannot run.
 
@@ -56,9 +56,9 @@ Distinguish clearly:
 
 The two scans:
 
-1. **SQL triage snapshot** — `yb-query-analysis` → [`references/triage-snapshot.sql`](../yb-query-analysis/references/triage-snapshot.sql) (workload concentration, scan amplification, retries, tail latency, sequence cache, stale stats, connections). On a YBA-managed Kubernetes universe there is no plain host:port — connect via `kubectl exec` into a `<node>-yb-tserver-N` pod (or port-forward 5433) per [`references/access-yba-k8s.md`](../yb-query-analysis/references/access-yba-k8s.md). No live SQL access at all → paste-mode (ask the user to run the snapshot and paste output).
+1. **SQL triage snapshot** — `yb-query-analysis` → [`references/triage-snapshot.sql`](../yb-query-analysis/references/triage-snapshot.sql) (workload concentration, scan amplification, retries, tail latency, sequence cache, stale stats, connections). On a YBA-managed Kubernetes universe there is no plain host:port — connect via `kubectl exec` into a `<node>-yb-tserver-N` pod (or port-forward 5433) per [`access-yba-k8s.md`](../yb-query-analysis/references/access-yba-k8s.md). No live SQL access at all → paste-mode (ask the user to run the snapshot and paste output).
 
-2. **Metrics quick health check** — `yb-metrics-analysis` → [`references/issue-quick-healthcheck.md`](../yb-metrics-analysis/references/issue-quick-healthcheck.md) (the green/triage gate that routes to CPU / memory / disk / hotspot / latency / tablet-limit playbooks). On a YBA-managed Kubernetes universe, reach the metrics one of two ways — **don't give up if the first is awkward**: (a) find the YBA platform pod (it can be in a *different* kube context than the universe) with `kubectl --context <ctx> get pods -A | grep -i yugaware` and port-forward its `9090`; or (b) **simplest, no kubectl** — call the YBA metrics proxy `POST /api/v1/customers/{cid}/metrics` with the API token you already have. Use (b) whenever the port-forward is any trouble. See [`yba-api` Prometheus reference → Connecting](../yba-api/references/prometheus.md#connecting).
+2. **Metrics quick health check** — `yb-metrics-analysis` → [`issue-quick-healthcheck.md`](../yb-metrics-analysis/references/issue-quick-healthcheck.md) (the green/triage gate that routes to CPU / memory / disk / hotspot / latency / tablet-limit playbooks). On a YBA-managed Kubernetes universe, reach the metrics one of two ways — **don't give up if the first is awkward**: (a) find the YBA platform pod (it can be in a *different* kube context than the universe) with `kubectl --context <ctx> get pods -A | grep -i yugaware` and port-forward its `9090`; or (b) **simplest, no kubectl** — call the YBA metrics proxy `POST /api/v1/customers/{cid}/metrics` with the API token you already have. Use (b) whenever the port-forward is any trouble. See [`yba-api` Prometheus reference → Connecting](../yba-api/references/prometheus.md#connecting).
 
 A finding in either layer is a lead, not a conclusion — and the *absence* of a finding in one layer is never a reason to skip the other scan.
 

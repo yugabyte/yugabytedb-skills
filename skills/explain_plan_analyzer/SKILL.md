@@ -31,7 +31,7 @@ A plan describes *how one execution accesses data* — not workload cost. A clea
 | **N+1 / chatty client** | Each child plan is individually perfect; the problem is the call count across queries | pgss `calls` ratios between parent and child shapes |
 | **Lock waits / idle-in-transaction** | Waiting holds no plan node | `pg_stat_activity`, `pg_locks` |
 
-When working from plans (or QPM) alone, conclude only that *the access path* is healthy — never that the query is. Pair any all-clear with the blind spots left unchecked, and route to the `yb-query-analysis` skill (`references/pgss-analysis.md`, `references/contention.md`) for the `pg_stat_statements` cross-check.
+When working from plans (or QPM) alone, conclude only that *the access path* is healthy — never that the query is. Pair any all-clear with the blind spots left unchecked, and route to the `yb-query-analysis` skill ([`pgss-analysis.md`](../yb-query-analysis/references/pgss-analysis.md), [`contention.md`](../yb-query-analysis/references/contention.md)) for the `pg_stat_statements` cross-check.
 
 **This applies even when you DO find an issue.** Finding a 🔴 seq scan does not discharge the obligation — it is not evidence that the blind spots above are absent, only that you were not looking at them. A confident, correct diagnosis that never says which layers went uninspected reads as a complete assessment when it is a single-layer one, and the reader has no way to know what is still unchecked. State the limits of your evidence whether the verdict is "healthy", "one clear problem", or anything in between.
 
@@ -152,7 +152,7 @@ The tell for batching is always `= ANY (ARRAY[…])`. Multi-column joins use a `
 
 Note that **`SET enable_nestloop = off` does not disable BNL on 2.21+** — BNL is its own strategy there, so BNL nodes surviving that flag is expected, and the hints differ (`NestLoop(...)` = unbatched, `YBBatchedNL(...)` = batched).
 
-Confirming a fix: inner `loops` collapses toward `1`, the `Index Cond` gains `ANY (ARRAY[…])`, and **`Storage Read Requests` under `DIST` drops by roughly the batch factor** — that RPC count is the metric to quote. For the GUCs, hints and remediation steps, see `yb-query-analysis` → `references/query-tuning.md` ("Batched Nested Loop joins").
+Confirming a fix: inner `loops` collapses toward `1`, the `Index Cond` gains `ANY (ARRAY[…])`, and **`Storage Read Requests` under `DIST` drops by roughly the batch factor** — that RPC count is the metric to quote. For the GUCs, hints and remediation steps, see `yb-query-analysis` → [`query-tuning.md`](../yb-query-analysis/references/query-tuning.md) ("Batched Nested Loop joins").
 
 ---
 

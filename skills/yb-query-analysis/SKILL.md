@@ -75,7 +75,7 @@ Read the matching reference; do not load all of them.
 | Locks, blocking, idle in transaction, connection exhaustion, OOM kill | [`references/contention.md`](references/contention.md) |
 | "Force a plan", plan hint, plan regression, Auto Analyze, statistics stale | [`references/query-tuning.md`](references/query-tuning.md) |
 | "Assess my database", health check, pre-production, pre-go-live, periodic review | [`references/assessment-checklists.md`](references/assessment-checklists.md) |
-| Migrating from Postgres, Voyager | `ysql` skill → `references/voyager.md` |
+| Migrating from Postgres, Voyager | `ysql` skill → [`voyager.md`](../ysql/references/voyager.md) |
 | On Aeon — what can I actually do? | [`references/aeon-access.md`](references/aeon-access.md) |
 
 ## First query — establish YugabyteDB version when relevant

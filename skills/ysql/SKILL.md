@@ -333,7 +333,7 @@ Design implications for schema and query authors:
 
 Note that `SET enable_nestloop = off` does **not** disable BNL on 2.21+ — BNL is a separate join strategy there, and the `pg_hint_plan` hints differ (`NestLoop(...)` = unbatched, `YBBatchedNL(...)` = batched).
 
-> **Diagnosing a plan that should batch but doesn't:** use `yb-query-analysis` — it owns performance investigation, and `references/query-tuning.md` has the GUCs and remediation. It draws on `explain-plan-analyzer` (Stage 3b) for reading the join nodes.
+> **Diagnosing a plan that should batch but doesn't:** use `yb-query-analysis` — it owns performance investigation, and [`query-tuning.md`](../yb-query-analysis/references/query-tuning.md) has the GUCs and remediation. It draws on `explain-plan-analyzer` (Stage 3b) for reading the join nodes.
 
 ### Long-Running Read Snapshots
 For batch jobs that need consistent reads without contention:

@@ -122,7 +122,7 @@ This section corroborates the metrics story against actual per-query cost — ru
 1. **Throughput ↔ latency corroboration:** `mean_exec_time`, `calls`, `rows` for the top statements should line up with the §1 dashboard read/write throughput and latency.
 2. **Rows per query:** `rows / calls` establishes how many rows each query *should* produce — the yardstick for the §8.2 seek/next counts.
 3. **Index usage:** correlate per-table seeks/nexts with the query shape. A `SELECT … WHERE column = …` with a **high next count on the table** is scanning the *table*, not an index ⇒ index likely missing or unused. General principle: do the seeks/nexts match what the query should need?
-4. **Scan amplification:** `docdb_rows_scanned` vs `docdb_rows_returned` vs `calls` (requires `yb_enable_pg_stat_statements_rpc_stats=true`). A selective query returning ~1 row that isn't aggregating but scans many rows has an insufficient index condition, falling back to storage-side filtering — the scan-ratio check in [`pgss-analysis.md`](../../yb-query-analysis/references/pgss-analysis.md).
+4. **Scan amplification:** `docdb_rows_scanned` vs `docdb_rows_returned` vs `calls` (requires `yb_enable_pg_stat_statements_rpc_stats=true`). A selective query returning ~1 row that isn't aggregating but scans many rows has an insufficient index condition, falling back to storage-side filtering — the scan-ratio check in [pgss-analysis.md](../../yb-query-analysis/references/pgss-analysis.md).
 
 ## 10. Synthesise — rank by impact, then drill
 
