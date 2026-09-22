@@ -30,6 +30,18 @@ npx skills add yugabyte/yugabytedb-skills -s yba-terraform
 
 # RAG / semantic search with LangChain on YugabyteDB
 npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain
+
+# YugabyteDB Aeon (managed cloud) REST API
+npx skills add yugabyte/yugabytedb-skills -s aeon-api
+
+# Universe metrics analysis (Prometheus/PromQL, hotspots, CPU, memory, I/O)
+npx skills add yugabyte/yugabytedb-skills -s yb-metrics-analysis
+
+# Broad, whole-universe performance assessment (triage + orchestration)
+npx skills add yugabyte/yugabytedb-skills -s yb-performance-assessment
+
+# YSQL query performance, session activity, and lock contention analysis
+npx skills add yugabyte/yugabytedb-skills -s yb-query-analysis
 ```
 
 ## Available Skills
@@ -42,6 +54,10 @@ npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain
 |`yba-api`|YugabyteDB Anywhere REST API — using the YugabyteDB Anywhere REST API to create, observe, manage and deploy YugabyteDB universes in a range of infrastructure topologies and clouds|
 |`yba-terraform`|YugabyteDB Anywhere Terraform provider (`yugabyte/yba`) — installing YBA on a VM, registering the first customer, and creating cloud (AWS/GCP/Azure) or on-prem providers, storage configs, universes, backups, schedules and restores, plus the upstream cloud IAM and network discovery those manifests need|
 |`yb-rag-langchain`|RAG, semantic search, and hybrid (vector + full-text) search on YugabyteDB with LangChain — covers `PGVectorStore` setup, `ybhnsw` / GIN index creation, hybrid search configuration, metadata filtering, and combining relational predicates with vector queries|
+|`aeon-api`|YugabyteDB Aeon (managed cloud) REST API — scripting and automating cluster lifecycle, database users, network allowlists, backups, VPC peering/private endpoints, and cluster metrics|
+|`yb-metrics-analysis`|YugabyteDB universe metrics analysis — Prometheus/PromQL-based triage and playbooks for hotspots, CPU, memory, I/O, latency/throughput, connection skew, and tablet limits|
+|`yb-performance-assessment`|Broad, whole-universe YugabyteDB performance assessment — triage-and-orchestration entry point that runs cross-cutting SQL and infrastructure checks, then dispatches to the specialist skills|
+|`yb-query-analysis`|YSQL query performance, session activity, and lock contention analysis — including proactive database health assessment and pg_stat_statements/ASH-driven diagnosis|
 
 ## Learn More
 

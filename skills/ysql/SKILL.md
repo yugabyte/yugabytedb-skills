@@ -8,6 +8,7 @@ description: Use when writing or reviewing SQL, schema definitions, or applicati
 **This skill includes:**
 - `references/smart-drivers.md` — connection examples for Python, Java, Go, Node.js
 - `references/retry-patterns.md` — transaction retry code in Python and Java
+- `references/bnl-joins.md` — Batched Nested Loop join design implications, GUC defaults, and diagnosis
 
 YugabyteDB is a distributed, PostgreSQL-compatible database (YSQL on port 5433) that is **ACID-compliant**, **highly available**, **horizontally scalable**, and supports **hash/range sharding** of tables and indexes. Every design choice should balance read efficiency, write scalability, and operational cost.
 
@@ -318,6 +319,12 @@ EXPLAIN (ANALYZE, DIST, COSTS) SELECT * FROM orders WHERE customer_id = $1;
 Key metrics: `Storage Read Requests` (RPCs), `Storage Rows Scanned`, and scan type.
 
 `Index Scan` is often fine when returning few rows. For larger projections, `Index Only Scan` can reduce resource use and improve latency when the index covers selected columns.
+
+### Join Strategies: Nested Loop vs Batched Nested Loop (BNL)
+
+YugabyteDB supports the standard PostgreSQL join methods (Nested Loop, Hash Join, Merge Join) plus a YB-specific one: **Batched Nested Loop Join (BNL)**, which batches inner-table lookups into `= ANY(ARRAY[...])` calls instead of one RPC per outer row.
+
+> **Design implications, GUC defaults, and diagnosing a plan that should batch but doesn't:** see [references/bnl-joins.md](references/bnl-joins.md)
 
 ### Long-Running Read Snapshots
 For batch jobs that need consistent reads without contention:

@@ -12,7 +12,7 @@ The rest of this file covers the bundled-Prometheus path, which is what the quer
 
 ## Connecting
 
-Default URL: `http://<yba-host>:9090` — HTTP, no auth, **only** reachable from the YBA host's network. If YBA is on Kubernetes, port-forward the `yb-platform-yugaware` pod's `9090` container port (the Prometheus container is a sidecar in the same pod).
+Default URL: `http://<yba-host>:9090` — HTTP, no auth, **only** reachable from the YBA host's network. If YBA is on Kubernetes, port-forward the YBA platform pod's `9090` container port (Prometheus is a sidecar in the same `yugaware` pod).
 
 ```bash
 # VM / installer
@@ -22,6 +22,35 @@ curl "http://yba.internal:9090/api/v1/query?query=up"
 kubectl -n yb-platform port-forward svc/yba-yugaware-ui 9090:9090
 curl "http://localhost:9090/api/v1/query?query=up"
 ```
+
+### If you don't already know the namespace / pod / context (do this first)
+
+Don't assume `yb-platform` / `yba-yugaware-ui` — names and namespaces vary per install, and **the YBA platform often lives in a different kube context (and even a different cluster) than the universe's nodes.** Discover them explicitly before port-forwarding:
+
+```bash
+# 1. List your contexts — the YBA platform may not be in your current one.
+kubectl config get-contexts
+
+# 2. Find the YBA platform pod (search every namespace, every context you have).
+#    The pod name contains "yugaware"; Prometheus is a container inside it.
+kubectl --context <ctx> get pods -A | grep -i yugaware
+#   -> e.g.  yb-platform   yba-yugaware-0   4/4   Running   ...   (namespace = first column)
+
+# 3. Port-forward 9090 from that pod (works whether or not a Service exists).
+kubectl --context <ctx> -n <ns> port-forward pod/<yugaware-pod> 9090:9090 &
+curl "http://localhost:9090/api/v1/query?query=up"
+```
+
+For the **universe's own pods** (tserver/master — needed for SQL access and for building `pod_name`/`namespace` selectors), discover them by name (most robust — label schemes vary by chart version):
+
+```bash
+kubectl --context <ctx> get pods -A | grep yb-tserver   # tserver pods
+kubectl --context <ctx> get pods -A | grep yb-master    # master pods
+# Namespace is the first column; tserver pods are <node>-yb-tserver-N, masters <node>-yb-master-N.
+# Label alternative (note the full key, NOT bare app=): -l app.kubernetes.io/name=yb-tserver
+```
+
+> **Simplest path when port-forward is blocked or the platform pod is hard to find (recommended for quick triage / lower-capability models):** skip Prometheus entirely and use the **YBA metrics proxy** — `POST /api/v1/customers/{cid}/metrics` with the API token (see the table above and the "YBA proxy alternative" section below). It needs only the YBA URL + token you already have, no kubectl, no port-forward — and returns the same series the YBA UI panels render. Prefer the bundled Prometheus when you need ad-hoc PromQL; fall back to the proxy whenever reaching `:9090` is any trouble.
 
 The two endpoints you need:
 
