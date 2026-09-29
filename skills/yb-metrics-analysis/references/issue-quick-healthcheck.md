@@ -4,7 +4,7 @@
 
 ## How to run it
 
-Fire the vitals below as **instant** queries (cheap; see the one-metric snippets in [`data-sources.md`](data-sources.md)), one per row. For each, apply both an **absolute** check (is the level bad?) and a **balance** check (is one member an outlier? — `max/avg`, see [SKILL.md](../SKILL.md#the-balance-lens-outlier-detection)). Stop expanding a vital as soon as it routes; you're triaging, not diagnosing.
+Fire the vitals below as **instant** queries (cheap; see the one-metric snippets in [`data-sources.md`](data-sources.md)), one per row. For each, apply both an **absolute** check (is the level bad?) and a **balance** check (is one member an outlier? — `max/avg`, see [SKILL.md](../SKILL.md#the-balance-lens-outlier-detection)). In a multi-region/AZ universe, run balance checks **within** each region/AZ and cluster — a preferred-leader region or geo-partitioned zone being hotter is by design, and so is higher cross-region `follower_lag_ms`. Stop expanding a vital as soon as it routes; you're triaging, not diagnosing.
 
 Substitute `node_prefix="<prefix>"` per the [yba-api Prometheus reference](../../yba-api/references/prometheus.md#identifiers-you-need-from-the-yba-api). Queries assume the relabelled/recording-rule schema; translate names via [`finding-metrics.md`](finding-metrics.md) if scraping nodes directly.
 

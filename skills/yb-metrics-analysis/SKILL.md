@@ -85,6 +85,8 @@ bottomk(1, <grouped_expr>)   # lowest
 
 where `<grouped_expr>` is your metric reduced to one series per member, e.g. `sum(rpc_irate_rps{node_prefix="<prefix>"}) by (exported_instance)`. A high coefficient of variation is itself the finding — then `topk(1, …)` / `bottomk(1, …)` names the node/table/tablet to chase. The hotspot playbook lives or dies on this lens; the others use it to decide *cluster-wide vs. one-member* before recommending a fix.
 
+**Compare peers, not the whole universe.** In a multi-region / multi-AZ universe, load can be *intentionally* uneven: preferred-leader regions/zones, geo-partitioned tablespaces, region-local apps (smart-driver topology keys), and read-replica clusters. Before calling node-level spread "skew", map each `exported_instance` to its cluster (primary / read replica), region and AZ from the YBA universe details (`nodeDetailsSet[].cloudInfo`, `placementInfo` incl. `leaderPreference`) and check tablespaces. Apply `max/avg` **within** a peer group; spread *between* groups that matches the placement policy is by design, not a hotspot.
+
 ## Conventions used across the guides
 
 - PromQL examples assume the **relabelled** schema (what YBA's Prometheus and the podman-yugabyte replica produce). If you are scraping nodes directly, translate names per [`references/finding-metrics.md`](references/finding-metrics.md).

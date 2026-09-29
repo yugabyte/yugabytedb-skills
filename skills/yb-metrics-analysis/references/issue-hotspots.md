@@ -48,8 +48,12 @@ This playbook *is* the balance lens (see [SKILL.md](../SKILL.md#the-balance-lens
      ```promql
      topk(10, sum(rate(rocksdb_number_db_seek{node_prefix="<prefix>", exported_instance=~".*tserver.*"}[5m])) by (table_name, table_type, exported_instance))
      ```
+  5. **Tablet:** a table-level sum dilutes one hot tablet among many and can't tell "hot tablet" from "busy table". For the hot table, group by `tablet_id` and take `max/avg` across its tablets — high ⇒ hot tablet/key (key design); flat ⇒ the table is just busy (a capacity/query question, not skew):
+     ```promql
+     topk(10, sum(rate(rocksdb_number_db_seek{node_prefix="<prefix>", table_name="<table>"}[5m])) by (tablet_id, exported_instance))
+     ```
 - **Quantify which member is the outlier** with `topk(1, …)` / the `max/avg` ratio at each level (node, then tablet/table).
-- **Do NOT** answer "is there a hotspot?" with a `sum()`/`avg()` over the whole cluster — that averages the hot node into the cool ones and hides it. Equally, don't stop at "node X is hot" — decompose to the table.
+- **Do NOT** answer "is there a hotspot?" with a `sum()`/`avg()` over the whole cluster — that averages the hot node into the cool ones and hides it. Equally, don't stop at "node X is hot" — decompose to the table, then to its tablets.
 
 > **Worked example (real universe).** Node-level `TabletServerService` ops showed `max/avg ≈ 1.97` — looked like a serious hotspot. Decomposing: YSQL query ops were *balanced* (≈2,400/node, YCQL idle) and leaders were balanced (1.01) — so not an application or placement problem. The skew was all **reads**: one node ran 10,144 seeks/s vs 1,149 and 240. Grouping seeks `by (table_name)` pinned **89% to `system.cdc_state`** — the internal CDC checkpoint table, polled hard by CDC connectors on the node that leads its tablets. Verdict: benign internal CDC bookkeeping, *not* user key skew. Without the decomposition the headline ratio would have been misread as an application hotspot.
 
@@ -57,15 +61,16 @@ This playbook *is* the balance lens (see [SKILL.md](../SKILL.md#the-balance-lens
 
 - A **persistent** per-node max/mean ratio > ~1.3–1.5 on ops/sec, CPU, or SST size (transient skew during rebalancing or after add-node is normal — let it settle).
 - One node's ops/sec line consistently 2×+ the median while leader counts are roughly even → traffic/key skew (not placement skew).
-- Uneven leader count (`count(is_raft_leader==1) by (exported_instance)`) → **placement/leader imbalance** (different root cause: recent resize, AZ failure, or a stuck load balancer — not a key-design problem).
-- A single `table_name`/`tablet_id` accounting for a large share of seek/write rate → hot tablet. If it's a **user** table (`PGSQL_TABLE_TYPE`/`YQL_TABLE_TYPE` in a user namespace) → likely a key-design issue. If it's a **system** table (e.g. `system.cdc_state`, `system.transactions`) → internal/background activity, not your schema.
+- Uneven leader count (`count(is_raft_leader==1) by (exported_instance)`) → **placement/leader imbalance** (different root cause: recent resize, AZ failure, or a stuck load balancer — not a key-design problem). Exception: leaders concentrated in a configured **preferred-leader** region/AZ are intended — only unevenness *within* that zone counts.
+- A single `tablet_id` accounting for a large share of its table's seek/write rate (high `max/avg` across that table's tablets) → hot tablet. A table that dominates with load spread evenly across its tablets is a busy table, not a hot tablet. If it's a **user** table (`PGSQL_TABLE_TYPE`/`YQL_TABLE_TYPE` in a user namespace) → likely a key-design issue. If it's a **system** table (e.g. `system.cdc_state`, `system.transactions`) → internal/background activity, not your schema.
 - **`write_lock_latency` in the milliseconds** on a hot object → write hotspot. The usual key-design culprits: a **low-cardinality hash index**, a **NULL-heavy hash column**, a **monotonic range index** (or a low-cardinality column leading a monotonic range column), **UUIDv7**, timestamps, lexicographically-ordered hex, sequences / generally-increasing values. Schema fix via [`ysql`](../../ysql/SKILL.md); SQL-side detection in [`yb-query-analysis` pgss reference](../../yb-query-analysis/references/pgss-analysis.md).
 - **A hot object not participating on all nodes** — a top-10 table reading/writing on only a subset of nodes. Decide which cause: the table **doesn't have enough tablets** to cover the nodes (needs a size-based split), or it has enough tablets but the data **can't split / isn't using them** (key design concentrates traffic). Cross-check tablet placement (`ts_live_tablet_peers`, leader counts) and [issue-tablet-limits](issue-tablet-limits.md).
 
 ## Confirm vs. rule out
 
-- **Confirm user key skew:** storage ops uneven *and* leaders roughly even *and* one or few **user** tables/tablets dominate the seek/write top-N. The hot table is the suspect — inspect its partition/primary key design.
+- **Confirm user key skew:** storage ops uneven *and* leaders roughly even *and* one or few **user** tables dominate the seek/write top-N *and* the load is concentrated in one or a few of that table's tablets. The hot table is the suspect — inspect its partition/primary key design.
 - **Rule out (it's internal, not your schema):** the dominant table is a **system** table — most commonly `system.cdc_state` when CDC is enabled (the CDC pollers hammer whichever node leads its tablets), or `system.transactions` under heavy distributed-txn load. Tune/scale CDC or accept it; don't touch user schema.
+- **Rule out (it's placement policy, by design):** the hot nodes are all in one region/AZ that is a **preferred-leader** zone, hosts a **geo-partitioned** tablespace, or serves a region-local app — and load is even *within* that zone. That's intended; see [peer groups](../SKILL.md#the-balance-lens-outlier-detection).
 - **Rule out (it's placement, not keys):** leader count itself is uneven → it's a balancing problem; check the load balancer state and recent topology changes rather than the schema.
 - **Rule out (it's the query layer, not data):** query ops (`server_type=...`) are skewed while storage ops are even → it's connection/application routing → see [connection skew](issue-connection-skew.md), not data skew.
 - **Rule out (it's just one slow node):** CPU/disk high on one node across *all* tablets uniformly → suspect hardware/noisy-neighbour, not key distribution.
