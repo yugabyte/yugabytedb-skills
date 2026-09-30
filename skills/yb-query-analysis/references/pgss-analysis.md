@@ -498,6 +498,8 @@ Once a query is identified via PGSS, get its plan with YugabyteDB's distributed 
 EXPLAIN (ANALYZE, DIST, COSTS OFF) <your_query_here>;
 ```
 
+**`ANALYZE` executes the statement**, side effects included. For an INSERT / UPDATE / DELETE, run it inside a transaction you roll back — `BEGIN; EXPLAIN (ANALYZE, DIST, COSTS OFF) …; ROLLBACK;` — or ask the user first.
+
 **Key DIST output fields:**
 
 | Field | What it tells you |

@@ -24,7 +24,7 @@
 --   "Assessment discipline" block in SKILL.md.
 --
 -- SCOPE -- PER-NODE
---   pg_stat_statements (sections 1-4), pg_stat_user_tables (6) and
+--   pg_stat_statements (sections 1-4), pg_stat_all_tables (6) and
 --   pg_stat_activity (7) are node-local: they only see traffic that ran through
 --   the tserver you are connected to. On a multi-node universe, run this on EVERY
 --   tserver (loop over yb_servers()) or use YBA's cross-node slow-queries view

@@ -2,7 +2,7 @@
 
 Voyager is Yugabyte's open-source migration tool. It handles the full migration lifecycle: assessment, schema export/import, and data export/import. This reference covers **assessment** and **schema conversion review** — the steps that determine what needs to change before moving a PostgreSQL (or Oracle/MySQL) database to YugabyteDB.
 
-Install: `pip install yb-voyager` or use the Docker image. Full installation guide: https://docs.yugabyte.com/preview/yugabyte-voyager/install-yb-voyager/
+Install: follow the [installation guide](https://docs.yugabyte.com/preview/yugabyte-voyager/install-yb-voyager/) (OS packages or Docker). It is not a PyPI package — do not `pip install` it.
 
 ---
 
@@ -19,7 +19,7 @@ yb-voyager assess-migration \
   --source-db-password <password> \
   --source-db-name   <dbname> \
   --source-db-schema public \
-  --assessment-dir   ./assessment-output
+  --export-dir       ./export-output
 ```
 
 For Oracle: `--source-db-type oracle`. For multiple schemas: comma-separate in `--source-db-schema`.
@@ -28,7 +28,7 @@ The assessment reads the source schema and statistics — it does **not** read t
 
 ### Assessment report
 
-The report is generated at `./assessment-output/assessmentReport.html` (and `.json` for programmatic use). Key sections:
+The report (HTML, plus JSON for programmatic use) is written under the export directory; its path is printed on the console. Key sections:
 
 **Migration complexity:** `Easy` / `Medium` / `Hard` — based on the count and severity of unsupported features. This is a rough guide; always read the details.
 
