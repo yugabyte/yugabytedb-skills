@@ -35,6 +35,9 @@
 \pset pager off
 \timing off
 
+-- Bound every query in this session (changes no data; SKILL.md allows it).
+SET statement_timeout = '30s';
+
 \echo
 \echo ============================================================
 \echo  0. CONTEXT — version, rpc_stats, pgss reset age

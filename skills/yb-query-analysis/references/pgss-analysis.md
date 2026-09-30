@@ -498,7 +498,9 @@ Once a query is identified via PGSS, get its plan with YugabyteDB's distributed 
 EXPLAIN (ANALYZE, DIST, COSTS OFF) <your_query_here>;
 ```
 
-**`ANALYZE` executes the statement**, side effects included. For an INSERT / UPDATE / DELETE, run it inside a transaction you roll back — `BEGIN; EXPLAIN (ANALYZE, DIST, COSTS OFF) …; ROLLBACK;` — or ask the user first.
+**`ANALYZE` executes the statement**, side effects included. First confirm with the user whether the target is production (don't infer it from the host name alone), and set `statement_timeout = '30s'` in your session so a large query can't run unbounded:
+- **Non-production:** run it freely; still wrap INSERT / UPDATE / DELETE in `BEGIN; EXPLAIN (ANALYZE, DIST, COSTS OFF) …; ROLLBACK;` so test data isn't changed.
+- **Production:** reads only, or writes inside `BEGIN; … ROLLBACK;` — and ask first if in doubt.
 
 **Key DIST output fields:**
 
