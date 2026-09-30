@@ -8,7 +8,7 @@ For **index and schema changes** (covering indexes, sharding key redesign, coloc
 
 ## pg_hint_plan — forcing a specific execution plan
 
-Pre-installed and enabled by default on all YugabyteDB deployments. Allows hints in SQL comments or persistent hints stored in a table. Use when:
+Pre-installed and enabled by default for **comment hints**. The **hint table** is off by default and needs setup (see Persistent hints below). Use when:
 - The planner chooses a Seq Scan and you know an index exists and would be faster
 - A join is using Hash Join but `YBBatchedNL` would reduce cross-node RPCs
 - A plan regression occurred and the previous plan shape is known
@@ -48,12 +48,20 @@ SELECT ... FROM fact JOIN dim1 ... JOIN dim2 ...;
 
 ⚠️ **`NestLoop` and `YBBatchedNL` are different join methods from 2.21 / 2024.2 onward.** `NestLoop(a b)` forces the classic one-RPC-per-outer-row join; only `YBBatchedNL(a b)` forces the batched one. The pre-2.21 idiom — `NestLoop(a b)` together with `Set(yb_bnl_batch_size 1024)` — now yields an **unbatched** plan, so hints copied from older runbooks silently regress. See "Batched Nested Loop joins" below.
 
-### Persistent hints (apply to all matching queries from all connections)
+### Persistent hints (the hint table)
+
+**Prerequisites — without both, stored hints are silently ignored:**
+1. `CREATE EXTENSION IF NOT EXISTS pg_hint_plan;` — creates `hint_plan.hints`.
+2. `pg_hint_plan.enable_hint_table` (default **off**) must be on in the sessions that run the query. `SET` affects only the current session, so for application connections set it per database or role (new sessions only; pooled connections must reconnect).
+
 ```sql
--- Store a hint (norm_query_string uses $1, $2 placeholders — same format as pg_stat_statements.query)
+CREATE EXTENSION IF NOT EXISTS pg_hint_plan;
+ALTER DATABASE <app_db> SET pg_hint_plan.enable_hint_table = on;   -- or ALTER ROLE <app_role> SET ...
+
+-- Store a hint (norm_query_string uses ? placeholders, NOT $1/$2)
 INSERT INTO hint_plan.hints (norm_query_string, application_name, hints)
 VALUES (
-    'SELECT id, status, created_at FROM orders WHERE customer_id = $1 AND status = $2',
+    'SELECT id, status, created_at FROM orders WHERE customer_id = ? AND status = ?;',
     '',   -- empty = match any application; or specify app name to scope it
     'IndexOnlyScan(orders orders_customer_status_cover_idx)'
 );
@@ -65,7 +73,7 @@ SELECT * FROM hint_plan.hints ORDER BY id;
 DELETE FROM hint_plan.hints WHERE norm_query_string LIKE '%orders%';
 ```
 
-**Finding the correct `norm_query_string`:** copy `pg_stat_statements.query` for the target query — it already uses `$1`, `$2` placeholder format and is normalized the same way.
+**Finding the correct `norm_query_string`:** start from `pg_stat_statements.query` for the target query and replace each `$1`, `$2`, … with `?`. Matching is **exact and case-sensitive** (whitespace included) against the text the application sends — an extra space means the hint is not used. Confirm with debug output (below) before relying on it.
 
 ### Verifying a hint is being applied
 ```sql

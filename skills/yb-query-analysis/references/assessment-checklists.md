@@ -33,7 +33,6 @@ EXPLAIN (ANALYZE, DIST, COSTS OFF) <critical_query_with_representative_values>;
 
 **During the test — PGSS scan ratio** (`pgss-analysis.md`):
 ```sql
-SET yb_enable_pg_stat_statements_rpc_stats = true;
 SELECT left(query, 80) AS query, calls,
        round(mean_exec_time::numeric, 2) AS mean_ms,
        round((docdb_rows_scanned::numeric / NULLIF(docdb_rows_returned, 0)), 1) AS scan_ratio,
@@ -155,7 +154,6 @@ ORDER BY table_name;
 
 ### 2. PGSS scan ratio (weekly for active databases) — `pgss-analysis.md`
 ```sql
-SET yb_enable_pg_stat_statements_rpc_stats = true;
 SELECT left(query, 80) AS query, calls,
        round((docdb_rows_scanned::numeric / NULLIF(docdb_rows_returned, 0)), 1) AS scan_ratio,
        round(mean_exec_time::numeric, 2) AS mean_ms

@@ -22,10 +22,11 @@ A user may have full SQL access (Axis A) but no GFlag control (Axis B). This is 
 SELECT count(*) FROM pg_stat_statements;
 -- If zero rows with a live workload, check role: SHOW session_authorization;
 
--- Enable DocDB columns (GUC, not GFlag — always self-service)
-SET yb_enable_pg_stat_statements_rpc_stats = true;
--- Or persist:
-ALTER DATABASE <dbname> SET yb_enable_pg_stat_statements_rpc_stats = true;
+-- DocDB RPC columns (GUC, not GFlag — self-service). On by default from
+-- v2025.2.5.0 / v2026.1.1.0. If off, it must be on in the WORKLOAD's sessions,
+-- not this one — see pgss-analysis.md "Enabling DocDB columns":
+SHOW yb_enable_pg_stat_statements_rpc_stats;
+-- ALTER DATABASE <dbname> SET yb_enable_pg_stat_statements_rpc_stats = true;  -- new sessions only
 
 -- pg_stat_activity: own session always visible; other sessions need pg_monitor role
 SELECT count(*) FROM pg_stat_activity;

@@ -27,7 +27,7 @@ It is a single cheap, read-only pass (catalog + `pg_stat_statements` + `pg_stat_
 
 **Why this is mandatory:** the most common failure mode is to skip straight to `EXPLAIN ANALYZE` on a query you constructed yourself — which often uses a clean access path and hides the real problem. The decisive signals (scan ratio of scanned:returned rows, retry rates, where cumulative time actually goes) live in `pg_stat_statements`, not in an EXPLAIN of a hand-written query. Read the snapshot first, then EXPLAIN the queries it flags.
 
-If `pg_stat_statements` is empty or the `docdb_*` columns are NULL, see the enablement notes at the top of [`references/pgss-analysis.md`](references/pgss-analysis.md) (enable `yb_enable_pg_stat_statements_rpc_stats`, ensure the extension is created), then re-run.
+If `pg_stat_statements` is empty or the `docdb_*` columns are NULL, see the enablement notes at the top of [`references/pgss-analysis.md`](references/pgss-analysis.md) (`yb_enable_pg_stat_statements_rpc_stats` must be on in the *workload's* sessions — on by default from v2025.2.5.0 / v2026.1.1.0; ensure the extension is created), then re-run.
 
 ## Assessment discipline — breadth first, then depth, then prune
 

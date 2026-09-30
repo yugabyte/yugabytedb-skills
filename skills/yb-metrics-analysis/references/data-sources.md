@@ -28,6 +28,8 @@ If the universe was created or is managed by YBA, **always start here.** YBA run
 
 Full connection details, the universe-scoping labels (`node_prefix`, k8s `pod_name`/`namespace`), Python/PowerShell query helpers, and a catalogue of ready PromQL live in the **[`yba-api` Prometheus reference](../../yba-api/references/prometheus.md)**. Read that for the mechanics; this skill focuses on *what to query and how to interpret it*.
 
+**Scoping labels, if `yba-api` isn't installed:** `node_prefix` = `universeDetails.nodePrefix` from `GET /api/v1/customers/{cid}/universes/{uni}` (header `X-AUTH-YW-API-TOKEN`). On Kubernetes use `pod_name=~` the `universeDetails.nodeDetailsSet[].nodeName` values joined with `|`, and `namespace=~` the deduplicated `nodeDetailsSet[].cloudInfo.kubernetesNamespace` values. Without API access, list label values in Prometheus (`/api/v1/label/node_prefix/values`) and pick the universe's.
+
 **How to tell it's YBA-managed:** the operator mentions YBA / YugabyteDB Anywhere / "the platform"; there is a YBA host or `yb-platform` namespace; or the universe appears under `GET /api/v1/customers/{cid}/universes`.
 
 ## 2. Standalone Prometheus / PromQL (no YBA, but Prometheus exists)

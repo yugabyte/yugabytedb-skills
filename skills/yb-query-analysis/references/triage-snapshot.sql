@@ -18,17 +18,22 @@
 --
 -- READING THE OUTPUT
 --   Each section prints a heading and a small result set. A section with zero
---   rows is a clean signal for that check. Do NOT stop at the first red flag —
+--   rows is a clean signal for that check ON THIS NODE ONLY -- see SCOPE below.
+--   Do NOT stop at the first red flag —
 --   read every section, list all flags, then rank by impact. See the
 --   "Assessment discipline" block in SKILL.md.
+--
+-- SCOPE -- PER-NODE
+--   pg_stat_statements (sections 1-4), pg_stat_user_tables (6) and
+--   pg_stat_activity (7) are node-local: they only see traffic that ran through
+--   the tserver you are connected to. On a multi-node universe, run this on EVERY
+--   tserver (loop over yb_servers()) or use YBA's cross-node slow-queries view
+--   before treating an empty section as clean. The catalog reads (5, and
+--   reltuples in 6) are cluster-wide.
 -- =============================================================================
 
 \pset pager off
 \timing off
-
--- Enable DocDB RPC columns for this session so scan/RPC metrics populate.
--- (No restart; session-scoped. To persist: ALTER DATABASE <db> SET ... = true;)
-SET yb_enable_pg_stat_statements_rpc_stats = true;
 
 \echo
 \echo ============================================================
@@ -36,6 +41,10 @@ SET yb_enable_pg_stat_statements_rpc_stats = true;
 \echo ============================================================
 SELECT version();
 SHOW yb_enable_pg_stat_statements_rpc_stats;
+-- rpc_stats is on by default from v2025.2.5.0 / v2026.1.1.0. If it shows OFF,
+-- the docdb_*_rpcs columns are empty for workload sessions -- a SET here would
+-- NOT fix that (it only affects this session). See pgss-analysis.md
+-- "Enabling DocDB columns".
 SELECT stats_reset AS pgss_last_reset,
        now() - stats_reset AS window_covered
 FROM pg_stat_statements_info;
@@ -133,8 +142,9 @@ LIMIT 10;
 -- measure only for queries that RETURN the rows they matched.
 -- Because this section is ordered by scanned_per_row, unfiltered aggregates
 -- sort to the top; expect them there and do not report them as findings.
--- If this section is EMPTY but you expect load, rpc_stats was off when the
--- queries ran — re-run the workload after the SET above, then re-check.
+-- If this section is EMPTY but you expect load: first check you are on a node
+-- that served the workload (SCOPE above), and that this release populates
+-- docdb_rows_scanned. Do not conclude "no scan amplification" from one node.
 
 \echo
 \echo ============================================================
@@ -173,16 +183,20 @@ LIMIT 10;
 
 \echo
 \echo ============================================================
-\echo  5. SEQUENCE CACHE — CACHE 1 serialises every nextval()
+\echo  5. SEQUENCE CACHE — low DDL cache (only matters if minval is 0)
 \echo ============================================================
 SELECT sequencename, cache_size
 FROM pg_sequences
 WHERE cache_size < 100
 ORDER BY cache_size ASC;
--- INTERPRET: any row here = a sequence that costs one RPC per value under
--- concurrent inserts. Fix: ALTER SEQUENCE <name> CACHE 100.  Empty = good.
--- NOTE: cache_size reflects current DDL, not history. The cluster GFlag
--- ysql_sequence_cache_minval can force a higher floor regardless of DDL.
+-- INTERPRET: cache_size is the DDL value, NOT the effective cache. The tserver
+-- GFlag ysql_sequence_cache_minval (default 100) sets a floor: the effective
+-- cache is max(ysql_sequence_cache_minval, cache_size). So on a default cluster
+-- these rows are NOT findings. Check the flag before reporting any of them:
+--   curl -s http://<tserver>:9000/varz?raw | grep ysql_sequence_cache_minval
+-- Flag only sequences where max(minval, cache_size) < 100 (typically minval=0
+-- and CACHE 1) -- those cost one RPC per nextval() under concurrent inserts.
+-- Fix: ALTER SEQUENCE <name> CACHE 100.
 
 \echo
 \echo ============================================================

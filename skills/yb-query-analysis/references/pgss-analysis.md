@@ -4,17 +4,20 @@
 
 ## Enabling DocDB columns
 
-The DocDB-specific columns (`docdb_*`) are present in the schema but populated only when enabled. This is a runtime change — no restart required:
+The RPC columns (`docdb_read_rpcs`, `docdb_write_rpcs`, `docdb_read_operations`, `docdb_write_operations`, `docdb_wait_time`, `catalog_wait_time`) are populated by the GUC `yb_enable_pg_stat_statements_rpc_stats`; the DocDB storage columns (`docdb_seeks`/`_nexts`/`_prevs`, `docdb_read_time`/`_write_time`, `docdb_obsolete_rows_scanned`) by `yb_enable_pg_stat_statements_docdb_metrics`. **Both default to `true` from v2025.2.5.0 / v2026.1.1.0** — check with `SHOW` and, if on, there is nothing to enable.
+
+On older releases the GUC must be on **in the sessions that run the workload** — a `SET` in your own diagnostic session does nothing for application connections. Propose (don't run — see [SKILL.md](../SKILL.md) output discipline) enabling it for new sessions on the application's database or role, then let the workload run before reading `pg_stat_statements`:
 
 ```sql
--- Enable for the current session
-SET yb_enable_pg_stat_statements_rpc_stats = true;
+SHOW yb_enable_pg_stat_statements_rpc_stats;   -- already on? nothing to do
 
--- Enable cluster-wide (persists across connections, no restart)
-ALTER DATABASE yugabyte SET yb_enable_pg_stat_statements_rpc_stats = true;
+-- New sessions on one database / role only (runtime, no restart). Existing pooled
+-- connections keep the old value until they reconnect.
+ALTER DATABASE <app_db> SET yb_enable_pg_stat_statements_rpc_stats = true;
+-- or: ALTER ROLE <app_role> SET yb_enable_pg_stat_statements_rpc_stats = true;
 ```
 
-On Aeon: this is a GUC, not a GFlag, so it is self-service via `SET` or `ALTER DATABASE`. Verify: `SHOW yb_enable_pg_stat_statements_rpc_stats;`
+On Aeon: this is a GUC, not a GFlag, so it is self-service via `ALTER DATABASE` / `ALTER ROLE`.
 
 ## Column reference
 
@@ -22,7 +25,7 @@ On Aeon: this is a GUC, not a GFlag, so it is self-service via `SET` or `ALTER D
 
 | Column | Notes |
 |---|---|
-| `queryid` | Normalized query fingerprint — use to join with ASH (`query_id`), hint_plan.hints, and yb_query_diagnostics |
+| `queryid` | Normalized query fingerprint — use to join with ASH (`query_id`), yb_query_diagnostics, and `hint_plan.hints` when `pg_hint_plan.yb_use_query_id_for_hinting` is on |
 | `query` | Normalized text with `$1`, `$2` placeholders |
 | `calls` | Total executions since last reset |
 | `mean_exec_time` | Mean execution time in ms (column named `mean_time` on older builds pre-2.18) |
@@ -35,8 +38,8 @@ On Aeon: this is a GUC, not a GFlag, so it is self-service via `SET` or `ALTER D
 | Column | Notes |
 |---|---|
 | `yb_latency_histogram` | JSONB bucketed latency distribution — use `yb_get_percentile()` for P50/P90/P99 |
-| `docdb_rows_scanned` | Rows read at DocDB storage layer (requires rpc_stats enabled) |
-| `docdb_rows_returned` | Rows passed back up from DocDB (requires rpc_stats enabled) |
+| `docdb_rows_scanned` | Rows read at DocDB storage layer |
+| `docdb_rows_returned` | Rows passed back up from DocDB |
 | `docdb_read_rpcs` | DocDB read RPC round-trips per query total (requires rpc_stats enabled) |
 | `docdb_write_rpcs` | DocDB write RPC round-trips per query total (requires rpc_stats enabled) |
 | `catalog_wait_time` | Total ms waiting on catalog/metadata operations |
@@ -64,7 +67,9 @@ ORDER BY cache_size ASC;
 -- CACHE 100 or higher amortises the RPC cost across many values.
 ```
 
-If any sequence has `cache_size = 1` and is used as a DEFAULT on a table that receives concurrent inserts, flag it immediately:
+`cache_size` is the DDL value, not the effective cache: the tserver GFlag `ysql_sequence_cache_minval` (**default 100**) sets a floor, and the effective cache is `max(ysql_sequence_cache_minval, cache_size)`. On a default cluster a `CACHE 1` sequence still caches 100, so it is **not** a finding. Check the flag first (`curl -s http://<tserver>:9000/varz?raw | grep ysql_sequence_cache_minval`) — it matters only when it has been set to `0` (e.g. for gapless sequences).
+
+If the effective cache is low (`minval = 0` and `cache_size = 1`) and the sequence is used as a DEFAULT on a table that receives concurrent inserts, flag it immediately:
 
 ```sql
 -- Confirm which tables use the low-cache sequence
@@ -91,14 +96,13 @@ ORDER BY mean_exec_time DESC
 LIMIT 10;
 ```
 
-**Signal:** `write_rpcs_per_call > 2` on a single-row INSERT, combined with `cache_size = 1`, confirms the sequence hotspot. The fix:
+**Signal:** `write_rpcs_per_call > 2` on a single-row INSERT, combined with an effective cache of 1, confirms the sequence hotspot. The fix:
 
 ```sql
 ALTER SEQUENCE <seq_name> CACHE 100;
--- Or set cluster-wide minimum (no restart on YugabyteDB):
--- yb-ts-cli --tserver_flags ysql_sequence_cache_minval=100
--- Or via GFlag ysql_sequence_cache_minval (restart required if set at startup)
 ```
+
+(Raising `ysql_sequence_cache_minval` back from `0` instead is a cluster-wide GFlag change that needs a rolling restart — and was presumably set to `0` on purpose, so confirm why first.)
 
 > **Note on CACHE state:** `pg_sequences.cache_size` reflects the *current DDL state*, not the running workload. Always check this **before** the workload runs — a previous AI or DBA session may have already altered the sequence. If INSERT latency looks normal but you suspect a prior CACHE 1 problem, look for monotonically-incrementing IDs that start far above 1 (wasted cache blocks from restarts under CACHE 1) or check `pg_stat_activity` during a live load for sessions blocked on the sequence tablet.
 
@@ -570,13 +574,10 @@ SELECT pg_stat_statements_reset(0, 0, <queryid>);
 
 ## Paste-mode — what to ask the user to collect
 
-When you don't have live database access, ask the user to run the following and paste the output. Include a note to enable DocDB columns first if they haven't:
+When you don't have live database access, ask the user to run the following and paste the output. If `SHOW yb_enable_pg_stat_statements_rpc_stats` is off (releases before the default changed), the RPC columns will be empty — see [Enabling DocDB columns](#enabling-docdb-columns):
 
 ```sql
--- Step 1: enable DocDB columns (no restart, safe to run)
-SET yb_enable_pg_stat_statements_rpc_stats = true;
-
--- Step 2: top 50 queries by mean time with all diagnostic columns
+-- Top 50 queries by mean time with all diagnostic columns
 SELECT queryid,
        left(query, 120) AS query,
        calls,
@@ -596,7 +597,7 @@ ORDER BY mean_exec_time DESC
 LIMIT 50;
 ```
 
-If `docdb_*` columns return NULL, the rpc_stats flag wasn't applied — interpret without them and ask the user to re-run with `SET yb_enable_pg_stat_statements_rpc_stats = true` in the same session before the SELECT.
+If the RPC `docdb_*` columns return NULL/0, the rpc_stats GUC was off in the sessions that ran the workload — interpret without them, and if they're needed propose enabling it per [Enabling DocDB columns](#enabling-docdb-columns) and collecting again after the workload has run.
 
 ## Working from a CSV / file export (not a pre-ranked paste)
 
@@ -608,7 +609,7 @@ A handed-over file — `\copy pg_stat_statements TO '…csv' CSV HEADER`, a dash
    \copy pgss_import FROM '/path/export.csv' WITH (FORMAT csv, HEADER true);
    -- now run the scan-ratio (#3), retries (#4), call-count (#8) queries against pgss_import instead of pg_stat_statements
    ```
-   A local PostgreSQL works just as well as the cluster — this is pure data, no YugabyteDB needed to *read* it.
+   The `LIKE` form needs a YugabyteDB connection (any universe, e.g. a local one) because it copies the YB-specific columns. Off-cluster, create the table with an explicit column list taken from the export's header row instead.
 
 2. **If reading the file directly** (no scratch DB available): get the size first (`wc -l`), then sort and take the top N on the columns that matter **before** loading any of it into context — never the file's own order. Rank on **both** `total_exec_time` (cumulative offenders) **and** `mean_exec_time` (per-call offenders), and keep the `docdb_rows_scanned`/`docdb_rows_returned` columns so you can still compute scan ratio. A single sort by one column is not enough — the cumulative-time leader and the per-call leader are usually different rows (see the "rank by impact, separate layers" discipline in [`../SKILL.md`](../SKILL.md)).
 

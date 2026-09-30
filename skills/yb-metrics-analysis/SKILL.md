@@ -90,7 +90,7 @@ where `<grouped_expr>` is your metric reduced to one series per member, e.g. `su
 ## Conventions used across the guides
 
 - PromQL examples assume the **relabelled** schema (what YBA's Prometheus and the podman-yugabyte replica produce). If you are scraping nodes directly, translate names per [`references/finding-metrics.md`](references/finding-metrics.md).
-- Selectors that scope to a universe (`node_prefix=...`, k8s `pod_name=~...` / `namespace=~...`) are described once in the [`yba-api` Prometheus reference](../yba-api/references/prometheus.md#identifiers-you-need-from-the-yba-api); examples here use a placeholder `node_prefix="<prefix>"`.
+- Selectors that scope to a universe (`node_prefix=...`, k8s `pod_name=~...` / `namespace=~...`) are described in the [`yba-api` Prometheus reference](../yba-api/references/prometheus.md#identifiers-you-need-from-the-yba-api), with a standalone summary in [`references/data-sources.md`](references/data-sources.md) if that skill isn't installed; examples here use a placeholder `node_prefix="<prefix>"`.
 - Always confirm a metric and its labels exist before building on it (`/api/v1/label/__name__/values`, `/api/v1/series`) rather than trusting a name from memory — the surface changes across YugabyteDB versions.
 
 > The per-issue playbooks are intentionally concise starting points and will be expanded over time. When a playbook does not cover a symptom, fall back to stage 2 (discover metric names) and the four-lens principle above — most novel issues are found by checking a handful of related metrics and looking for the one that is out of balance.
