@@ -87,11 +87,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./skills/yb-performance-assessment",
-        "./skills/yb-query-analysis",
-        "./skills/yb-metrics-analysis",
-        "./skills/explain_plan_analyzer",
-        "./skills/yba-api"
+        "./skills/yb-performance-assessment"
       ]
     },
     {
@@ -100,8 +96,7 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./skills/yb-query-analysis",
-        "./skills/explain_plan_analyzer"
+        "./skills/yb-query-analysis"
       ]
     }
   ]

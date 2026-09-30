@@ -49,7 +49,7 @@ The report is generated at `./assessment-output/assessmentReport.html` (and `.js
 
 | Item | What to check |
 |---|---|
-| Sequences | Default `CACHE 1` in PostgreSQL → hotspot on high-ingest paths; change to `CACHE 100` or higher |
+| Sequences | PostgreSQL dumps carry an explicit `CACHE 1`, but YugabyteDB caches `max(ysql_sequence_cache_minval, CACHE)` — default floor 100 — so this is only a hotspot if the flag is `0`. Raise `CACHE` above 100 for very high-ingest paths |
 | Triggers | Complex triggers work but add cross-node RPC on write paths — review performance impact |
 | Materialized views | Supported; `REFRESH MATERIALIZED VIEW` acquires a lock |
 | Partitioned tables | Supported; review partition count — overly fine-grained partitions create tablet overhead |
@@ -103,14 +103,9 @@ Review every exported `CREATE INDEX` statement:
 
 ### 3c. Sequences
 
-For every `CREATE SEQUENCE` and `GENERATED ALWAYS AS IDENTITY` column:
-```sql
--- After import, set appropriate cache on each sequence
-ALTER SEQUENCE <seq_name> CACHE 100;
--- Or specify at creation:
-CREATE SEQUENCE order_seq CACHE 100;
-```
-`IDENTITY` columns already default to cache 100 in YugabyteDB. Explicit sequences default to cache 1 unless changed.
+The effective cache is `max(ysql_sequence_cache_minval, CACHE)`. The tserver flag defaults to **100**, so imported sequences with PostgreSQL's explicit `CACHE 1` still cache 100 values and need no change. Check the flag first (`curl -s http://<tserver>:9000/varz?raw | grep ysql_sequence_cache_minval`):
+- **Flag is `0`** (set deliberately, e.g. for gapless sequences): low-cache sequences on high-ingest paths cost one RPC per `nextval()` — raise them with `ALTER SEQUENCE <seq_name> CACHE 100;`.
+- **Very high insert rates:** a `CACHE` above 100 reduces allocation RPCs further; expect larger gaps after restarts.
 
 ### 3d. Partitioned tables
 

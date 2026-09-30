@@ -58,10 +58,11 @@ SELECT ... FROM fact JOIN dim1 ... JOIN dim2 ...;
 CREATE EXTENSION IF NOT EXISTS pg_hint_plan;
 ALTER DATABASE <app_db> SET pg_hint_plan.enable_hint_table = on;   -- or ALTER ROLE <app_role> SET ...
 
--- Store a hint (norm_query_string uses ? placeholders, NOT $1/$2)
+-- Store a hint. Placeholder form depends on how the app sends values (see below):
+-- literals inlined in the SQL text -> ?, bound parameters -> $1, $2 as sent.
 INSERT INTO hint_plan.hints (norm_query_string, application_name, hints)
 VALUES (
-    'SELECT id, status, created_at FROM orders WHERE customer_id = ? AND status = ?;',
+    'SELECT id, status, created_at FROM orders WHERE customer_id = $1 AND status = $2',
     '',   -- empty = match any application; or specify app name to scope it
     'IndexOnlyScan(orders orders_customer_status_cover_idx)'
 );
@@ -73,7 +74,7 @@ SELECT * FROM hint_plan.hints ORDER BY id;
 DELETE FROM hint_plan.hints WHERE norm_query_string LIKE '%orders%';
 ```
 
-**Finding the correct `norm_query_string`:** start from `pg_stat_statements.query` for the target query and replace each `$1`, `$2`, … with `?`. Matching is **exact and case-sensitive** (whitespace included) against the text the application sends — an extra space means the hint is not used. Confirm with debug output (below) before relying on it.
+**Finding the correct `norm_query_string`:** pg_hint_plan replaces **literal constants** with `?` but leaves **bound parameters** (`$1`, `$2`, … sent via the extended protocol — JDBC `PreparedStatement`, psycopg3, most ORMs) exactly as sent. `pg_stat_statements.query` shows `$n` for both, so it can't tell you which: use `$n` for a parameterised app and `?` where values are inlined in the SQL text (e.g. psycopg2, `ysqlsh`). Matching is otherwise **exact and case-sensitive** — whitespace and a trailing `;` included — so an extra space means the hint is not used. Confirm with debug output (below) before relying on it. (Verified on 2026.1.1.0: a `?` row matched only the literal form; a `$1` row matched only the bound-parameter form.)
 
 ### Verifying a hint is being applied
 ```sql

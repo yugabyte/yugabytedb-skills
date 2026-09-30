@@ -38,6 +38,7 @@ npx skills add yugabyte/yugabytedb-skills -s aeon-api
 npx skills add yugabyte/yugabytedb-skills -s yb-metrics-analysis
 
 # Broad, whole-universe performance assessment (triage + orchestration)
+# — install with yb-query-analysis, yb-metrics-analysis and yba-api, which it runs
 npx skills add yugabyte/yugabytedb-skills -s yb-performance-assessment
 
 # YSQL query performance, session activity, and lock contention analysis

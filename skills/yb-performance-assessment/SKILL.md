@@ -16,6 +16,8 @@ The single most common assessment failure is **checking one layer and declaring 
 
 This skill is thin on purpose: it sequences the work and hands off. The depth lives in the two specialist skills — read their references, don't reinvent their queries here.
 
+**Install it with its specialists.** Its steps run files from `yb-query-analysis` and `yb-metrics-analysis` (and use `yba-api` for Prometheus access on YBA), so install those alongside it — `npx skills add yugabyte/yugabytedb-skills -s <skill>` for each, or install all skills. If a linked file is missing, tell the user which skill to install, run the layer you can reach, and state the uncovered layer in the report.
+
 ## Output discipline — advisory only; no changes without explicit approval
 
 This assessment is **diagnostic and read-only by default.** Only the two triage scans and the specialists' read-only collection (catalog, `pg_stat_statements`, `pg_stat_activity`, ASH, PromQL / `/prometheus-metrics`) run without asking. The deliverable is **one ranked report of findings and recommendations for the user to review — not changes you apply.**
