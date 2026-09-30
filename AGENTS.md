@@ -42,6 +42,39 @@ skills/
       cloud-iam-setup.md       # Upstream aws/google/azurerm Terraform creating YBA's IAM user / service account / service principal with the docs' delegated permissions
       install-bootstrap.md     # Stage 1: yba_installer (install over SSH) + yba_customer_resource (first customer, outputs api_token)
       providers-universe.md    # Stage 2: yba_aws/gcp/azure/onprem_provider, *_storage_config, yba_universe, yba_backup/backup_schedule/restore
+  aeon-api/
+    SKILL.md                  # YugabyteDB Aeon (managed cloud) REST API skill
+    references/
+      auth-and-discovery.md   # API key, discovering accountId/projectId/clusterId, curl/Python/PowerShell patterns, pagination
+      recipes.md               # Ready-to-use operations: cluster info, scaling, node list, database users, allowlists, backups, metrics
+  yb-metrics-analysis/
+    SKILL.md                  # YugabyteDB universe metrics analysis skill (Prometheus/PromQL triage and playbooks)
+    references/
+      data-sources.md          # Picking a metrics source (YBA, standalone Prometheus, direct node scrape, Aeon export sinks)
+      finding-metrics.md        # Locating and querying the right metrics for a given issue
+      workload-sweep.md         # Guided expert workload sweep (read/write mix, connections-per-core sizing, hot-table review)
+      issue-quick-healthcheck.md # Green/triage gate that routes to the per-issue playbooks below
+      issue-cpu.md               # High CPU saturation playbook
+      issue-memory.md            # Memory pressure / OOM playbook
+      issue-disk-io.md           # I/O saturation playbook
+      issue-hotspots.md          # Node/tablet hotspot playbook
+      issue-latency-throughput.md # Latency/throughput regression playbook
+      issue-connection-skew.md   # Uneven connections / pool sizing playbook
+      issue-master-catalog.md    # Master/catalog RPC pressure playbook
+      issue-tablet-limits.md     # Tablet replica limit / too-many-tablets playbook
+  yb-performance-assessment/
+    SKILL.md                  # Whole-universe performance assessment skill (triage-and-orchestration entry point)
+  yb-query-analysis/
+    SKILL.md                  # YSQL query performance, session activity, and lock contention analysis skill
+    references/
+      ash-analysis.md           # Active Session History / wait event analysis
+      contention.md             # Locks, blocking, idle-in-transaction, connection exhaustion, OOM kill
+      pgss-analysis.md          # pg_stat_statements analysis (scan ratio, retries, call-count ranking)
+      query-tuning.md           # Plan hints, plan regressions, Auto Analyze, stale statistics, Batched Nested Loop tuning
+      assessment-checklists.md  # Proactive database health assessment (pre-production, pre-go-live, periodic review)
+      access-yba-k8s.md         # Reaching YSQL on a YBA-managed Kubernetes universe
+      aeon-access.md            # SQL-layer access and analysis on YugabyteDB Aeon
+      triage-snapshot.sql        # Cheap read-only SQL triage snapshot used by yb-performance-assessment
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
 .skills-lint.json             # Known exceptions for the static checks (each needs a rule and a reason)
