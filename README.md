@@ -30,6 +30,9 @@ npx skills add yugabyte/yugabytedb-skills -s yba-terraform
 
 # RAG / semantic search with LangChain on YugabyteDB
 npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain
+
+# Check a deployment against published Technical Advisories
+npx skills add yugabyte/yugabytedb-skills -s yb-technical-advisories
 ```
 
 ## Available Skills
@@ -42,6 +45,7 @@ npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain
 |`yba-api`|YugabyteDB Anywhere REST API — using the YugabyteDB Anywhere REST API to create, observe, manage and deploy YugabyteDB universes in a range of infrastructure topologies and clouds|
 |`yba-terraform`|YugabyteDB Anywhere Terraform provider (`yugabyte/yba`) — installing YBA on a VM, registering the first customer, and creating cloud (AWS/GCP/Azure) or on-prem providers, storage configs, universes, backups, schedules and restores, plus the upstream cloud IAM and network discovery those manifests need|
 |`yb-rag-langchain`|RAG, semantic search, and hybrid (vector + full-text) search on YugabyteDB with LangChain — covers `PGVectorStore` setup, `ybhnsw` / GIN index creation, hybrid search configuration, metadata filtering, and combining relational predicates with vector queries|
+|`yb-technical-advisories`|Checks a YugabyteDB / YugabyteDB Anywhere deployment against the live list of published Technical Advisories — determines relevant versions, matches affected-version ranges, and reports mitigations and recommended actions|
 
 ## Learn More
 
