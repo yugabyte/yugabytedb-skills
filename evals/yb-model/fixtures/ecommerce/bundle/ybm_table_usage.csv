@@ -1,0 +1,11 @@
+schemaname,relname,seq_scan,seq_tup_read,idx_scan,n_tup_ins,n_tup_upd,n_tup_del,n_live_tup
+public,audit_log,0,0,,0,0,0,0
+public,audit_log_2026q1,0,0,200,0,0,0,2591900
+public,audit_log_2026q2,0,0,200,0,0,0,2620800
+public,audit_log_2026q3,0,0,200,0,0,0,2649600
+public,audit_log_2026q4,0,0,200,0,0,0,2137700
+public,customers,0,0,900,0,0,0,2000000
+public,events,0,0,0,0,0,0,10026200
+public,order_items,0,0,0,0,0,0,30000000
+public,orders,0,0,2150,0,0,0,10000000
+public,shipments,0,0,300,0,0,0,5000000

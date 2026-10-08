@@ -1,3 +1,9 @@
 .DS_Store
 __pycache__/
 *.pyc
+evals/yb-model/fixtures-private/
+evals/yb-model/oracle-report-*.json
+
+# yb-model: version-specific caches, built locally on demand; never commit (see AGENTS.md)
+skills/yb-model/rules/versions.json
+skills/yb-model/rules/observations.json

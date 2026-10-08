@@ -1,0 +1,8 @@
+key,value
+version,"PostgreSQL 15.12-YB-2026.1.1.2-b0 on aarch64-unknown-linux-gnu, compiled by clang version 21.1.1 (https://github.com/yugabyte/llvm-project.git efca861cc42178cc4c555d605b36c79d7d121cc1), 64-bit"
+database,shop
+colocated,false
+postmaster_start,2026-10-01 00:14:33.95544+00
+captured_at,2026-10-01 00:17:01.648736+00
+node,127.0.0.1:5433
+nodes,1

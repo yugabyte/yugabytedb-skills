@@ -1,0 +1,142 @@
+{
+ "about": "What each bundle input enables, and what the engine mutes or weakens when it is missing. preflight.py detects each input; analyze.py applies the mutes. 'major' inputs need the user's yes before a review runs without them (review --accept-missing); 'minor' ones are only listed. A muted rule is not evaluated at all, because its result would rest on a guess. A weakened rule still runs but every finding it makes carries the caveat. Stages are parts of the workflow that are skipped or reduced.",
+ "inputs": [
+  {
+   "id": "workload",
+   "tier": "major",
+   "label": "Workload: pg_stat_statements (ybm_pss.csv), a query list (queries.sql), or both",
+   "without": "No access patterns, so nothing can be said about how the schema is read or written. The review is structural only (DDL and statistics).",
+   "mutes": ["CAP001", "CAP002", "CAP003", "CAP010", "CAP011", "CAP012", "CAP020", "CAP021",
+             "CAP030", "CAP031", "CAP040", "CAP050", "CAP051", "IDX001", "PLN001", "PLN002",
+             "PLN003", "PLN004", "WRK001", "WRK002", "WRK004", "WRK005", "WRK006", "WRK007",
+             "WRK008", "WRK009", "WRK010", "CAP013", "CAP060", "PLN005"],
+   "stages": ["plan replay", "access-pattern table", "plan-regression part of the safety pass (uniqueness is still checked)", "workload hygiene section"],
+   "collect": "ysqlsh -f scripts/collect.sql (writes ybm_pss.csv), or paste the application's queries"
+  },
+  {
+   "id": "pss",
+   "tier": "major",
+   "skip_if_missing": "workload",
+   "label": "pg_stat_statements (ybm_pss.csv); a query list alone is unranked",
+   "without": "Patterns are unranked (no calls, time or rows) and the list may be incomplete, so the engine cannot tell hot from cold, cannot prove an index or key is unused, and cannot measure application behaviour.",
+   "mutes": ["CAP050", "CAP051", "IDX001", "WRK001", "WRK002", "WRK004", "WRK005", "WRK006",
+             "WRK007", "WRK008", "WRK009", "WRK010"],
+   "weakens": {"rules": ["CAP001", "CAP002", "CAP003", "CAP010", "CAP011", "CAP012", "CAP013",
+                         "CAP020", "CAP021", "CAP030", "CAP031", "CAP040"],
+               "caveat": "pattern unranked"},
+   "stages": ["traffic weighting (HOT / WARM / COLD)", "drop instead of rebuild for unused indexes", "workload hygiene section"],
+   "if_declared_complete": {"unmute": ["IDX001"], "caveat": "workload declared complete",
+                            "note": "queries.sql starts with '-- ybm: workload-complete' (only when the user states no other statement touches these tables): indexes no listed pattern uses are reported (IDX001), marked as resting on that declaration."},
+   "collect": "ysqlsh -f scripts/collect.sql"
+  },
+  {
+   "id": "pg_stats",
+   "tier": "major",
+   "label": "Column statistics: pg_stats (ybm_pg_stats.csv)",
+   "without": "Null fraction, distinct counts, skew and correlation of key columns are unknown, so hot-shard and data-quality checks cannot run; nullability comes from the DDL only.",
+   "mutes": ["STA002", "STA003", "STA005", "STA006", "STA007", "CFG005"],
+   "weakens": {"rules": ["STA001", "STA004"], "caveat": "no pg_stats"},
+   "stages": ["'already sound' statements about key distribution"],
+   "collect": "ysqlsh -f scripts/collect.sql (run ANALYZE first on tables never analyzed)"
+  },
+  {
+   "id": "reltuples",
+   "tier": "major",
+   "label": "Table sizes: pg_class.reltuples (ybm_reltuples.csv)",
+   "without": "Table sizes are unknown, so severities are not adjusted for size (a scan of 500 rows ranks like a scan of 50 million) and single-tablet checks cannot run.",
+   "mutes": ["SPL001"],
+   "weakens": {"rules": ["CAP001", "CAP002", "CAP003", "CAP013", "CAP030", "CAP031", "PLN001",
+                         "PLN002", "PLN003", "STA001", "STA002", "STA003"],
+               "caveat": "table size unknown"},
+   "stages": ["size-adjusted severity"],
+   "collect": "ysqlsh -f scripts/collect.sql"
+  },
+  {
+   "id": "version",
+   "tier": "major",
+   "label": "YugabyteDB release: SELECT version() (ybm_meta.csv), pg_settings server_version, the ysql_dump header, or stated by the user (--release)",
+   "without": "Release-specific facts cannot be applied: setting defaults, features a fix relies on, and which regress tests pin each rule. Replay cannot pick an image.",
+   "mutes": [],
+   "stages": ["plan replay", "release defaults for planner settings", "feature-availability check of fixes", "regress-test pinning per release"],
+   "collect": "a schema dump made with ysql_dump states it in its header; otherwise ask for the output of SELECT version(); and pass --release"
+  },
+  {
+   "id": "settings",
+   "tier": "major",
+   "label": "Planner settings: pg_settings (ybm_settings.csv)",
+   "without": "Whether the cost model, bitmap scans and merge scans are on is taken from release defaults, and on releases where deployment tools set them differently the answer is unknown. Access-path conclusions that depend on the planner mode are conditional.",
+   "mutes": [],
+   "weakens": {"rules": ["CAP001", "CAP010", "CAP011", "CAP012", "CAP040", "CFG001"],
+               "caveat": "planner settings not captured"},
+   "stages": [],
+   "collect": "ysqlsh -f scripts/collect.sql, or: SELECT name, setting FROM pg_settings WHERE name LIKE 'yb_%' OR name LIKE 'enable_%';"
+  },
+  {
+   "id": "yb_metadata",
+   "tier": "major",
+   "label": "Sharding metadata in the dump (ysql_dump --include-yb-metadata)",
+   "without": "Keys without a HASH / ASC annotation have their sharding inferred from the database default, not observed. Findings about those keys rest on the inference.",
+   "mutes": [],
+   "weakens": {"rules": ["CAP001", "CAP050", "STA001", "STA002", "STA003", "STA004"],
+               "caveat": "sharding inferred", "scope": "inferred_keys"},
+   "stages": [],
+   "collect": "ysql_dump --schema-only --include-yb-metadata > schema.sql"
+  },
+  {
+   "id": "index_usage",
+   "tier": "minor",
+   "label": "Index usage: pg_stat_user_indexes (ybm_index_usage.csv)",
+   "without": "Unused indexes cannot be proven unused; any DROP the review recommends starts with an idx_scan check for you to run.",
+   "mutes": ["WRK003"],
+   "stages": ["drops without a prior idx_scan check"],
+   "collect": "ysqlsh -f scripts/collect.sql"
+  },
+  {
+   "id": "table_usage",
+   "tier": "minor",
+   "label": "Table write counts: pg_stat_user_tables (ybm_table_usage.csv)",
+   "without": "Write activity comes from the captured statements only.",
+   "mutes": [],
+   "stages": [],
+   "collect": "ysqlsh -f scripts/collect.sql"
+  },
+  {
+   "id": "tablets",
+   "tier": "minor",
+   "label": "Tablet counts (ybm_tablets.csv)",
+   "without": "Large relations still on one tablet cannot be detected.",
+   "mutes": ["SPL001"],
+   "stages": [],
+   "collect": "ysqlsh -f scripts/collect.sql"
+  },
+  {
+   "id": "docdb_stats",
+   "tier": "minor",
+   "skip_if_missing": "pss",
+   "label": "DocDB columns in pg_stat_statements (docdb_rows_scanned, docdb_read_rpcs)",
+   "without": "Read amplification and RPC counts are not measured, so no access-path finding can be confirmed from measurements.",
+   "mutes": ["WRK001", "WRK002"],
+   "stages": ["measured confirmation of access-path findings"],
+   "collect": "SET yb_enable_pg_stat_statements_rpc_stats = on (where available), then recapture"
+  },
+  {
+   "id": "plan_time",
+   "tier": "minor",
+   "skip_if_missing": "pss",
+   "label": "Planning time in pg_stat_statements (total_plan_time)",
+   "without": "Planning overhead cannot be measured.",
+   "mutes": ["WRK006"],
+   "stages": [],
+   "collect": "pg_stat_statements.track_planning = on, then recapture"
+  },
+  {
+   "id": "capture_date",
+   "tier": "minor",
+   "label": "Capture date (captured_at in ybm_meta.csv)",
+   "without": "Partition runway cannot be computed.",
+   "mutes": ["PRT001"],
+   "stages": [],
+   "collect": "ysqlsh -f scripts/collect.sql"
+  }
+ ]
+}
