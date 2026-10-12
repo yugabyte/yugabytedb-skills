@@ -1,0 +1,9 @@
+schemaname,tablename,attname,inherited,null_frac,avg_width,n_distinct,most_common_vals,most_common_freqs,histogram_bounds,correlation
+public,child,seq,f,0,4,40,,,,0.1
+public,child,amt,f,0.3,6,-0.2,,,,0
+public,child,tags,f,0.6,20,-0.05,,,,0
+public,child,status,f,0,6,2,"{active,done}","{0.7,0.3}",,0.5
+public,ev,ts,t,0,4,180,,,,0.9
+public,ev,v,t,0.5,4,-0.1,,,,0
+public,node,parent_id,f,0.1,8,-0.5,,,,0
+public,loose,b,f,0.2,5,1000,,,,0

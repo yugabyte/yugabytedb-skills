@@ -6,7 +6,7 @@ This file provides guidance to AI agents when working with yugabyteDB.
 
 YugabyteDB Agent Skills — a collection of reusable AI agent skills (delivered as Markdown files) for deploying, managing and developing for YugabyteDB, a Postgres-compatible distributed SQL database. Published to the Claude Plugin Marketplace and compatible with Claude Code, Cursor, GitHub Copilot, Windsurf, Gemini, and any tool supporting the [skills.sh](https://skills.sh) ecosystem.
 
-**This is a documentation-only repository.** There is no build system or application code. The only automation is `scripts/check_skills.py`, a static checker for the skill files that runs in CI — see [Static checks](#static-checks).
+**This is almost entirely a documentation repository.** There is no build system. The repo-wide automation is `scripts/check_skills.py`, a static checker for the skill files that runs in CI — see [Static checks](#static-checks). One skill, `yb-model`, also ships a standard-library Python engine with its own tests; see [Skills that ship code: yb-model](#skills-that-ship-code-yb-model).
 
 ## Repository Structure
 
@@ -75,6 +75,13 @@ skills/
       access-yba-k8s.md         # Reaching YSQL on a YBA-managed Kubernetes universe
       aeon-access.md            # SQL-layer access and analysis on YugabyteDB Aeon
       triage-snapshot.sql        # Cheap read-only SQL triage snapshot used by yb-performance-assessment
+  yb-model/
+    SKILL.md                  # YSQL schema / data-model review skill (runbook around a deterministic engine)
+    references/               # engine.md (outputs, passes), checks.md, intake.md, validation.md, critic.md
+    rules/                    # rules.json (rules + regress-test citations), inputs.json (what each input enables)
+    scripts/                  # yb-model.py CLI and ybm/ engine (Python 3.8+, standard library only), collect.sql, yb-lint.py
+evals/
+  yb-model/                   # yb-model evals: synthetic fixture with answer key, blind-judge rubric, planner oracle
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
 .skills-lint.json             # Known exceptions for the static checks (each needs a rule and a reason)
@@ -179,6 +186,100 @@ The [static checks](#static-checks) catch structural problems. The rules here co
 3. The regression task from "Start from a failure" produces better output with the skill than without, and the PR says how it was checked.
 
 Sources: [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) (Anthropic), [Agent Skills specification](https://agentskills.io/specification), [skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator) (anthropics/skills).
+
+## Skills that ship code: yb-model
+
+`yb-model` is the one skill here with executable code: a standard-library Python engine under
+`skills/yb-model/scripts/` with its tests and the evals under `evals/yb-model/`.
+
+### Design principles (frozen)
+
+These decide between designs; a change that breaks one is a redesign and needs the maintainer's
+agreement first.
+
+1. **Measured before claimed.** A claim about how YugabyteDB executes something is measured on
+   the customer's release (a probe, or a pattern run on the scratch server) or is labelled
+   unverified. Plan choice comes from full-scale statistics; execution shape is measured on a
+   small generated sample shaped by them (one or a few hash prefixes, a capped row budget), and
+   reported as ratios per row returned, never as times.
+2. **The review reports facts, measured deltas and options; it never prescribes or chooses.**
+   The user decides; DDL is rendered last from structured changes, only for a chosen option.
+3. **The server is the source of truth.** The catalog and the server's plans outrank the text
+   parser; every disagreement between them is recorded as a gap.
+4. **A gap becomes a reproducer before a fix.** A disagreement (parser vs catalog, model vs
+   plan, prediction vs counters, engine vs a human review) is recorded with a synthetic
+   reproducer, a `pitfalls.md` entry and a failing test; a fix closes the family the
+   reproducer belongs to, not the one case.
+5. **A measured anomaly no rule explains is reported as "unexplained, measured".** It carries
+   its counters, is a signal for a later, fuzzier pass, and ends in a rule or a pitfall entry.
+6. **The agent may hypothesise; it asserts only what was measured or what the engine output.**
+   Hypotheses go under Reviewer notes, labelled; findings come from the engine.
+7. **Shape, never values.** Generated data keeps the statistics' shape, not the customer's
+   values; reviews, gap records and pitfalls are scrubbed by construction.
+8. **Recall is the gate.** `evals/yb-model/recall.py` over every answer key (human reviews
+   become answer-key items) decides whether a change ships, not wording rounds or agreement
+   between two of the engine's own models.
+
+### Rules for changes
+
+Changes to it, including iterative rule improvements, follow these rules:
+
+- **The static-only path is frozen.** When a scratch server runs, the schema model is the
+  server's catalog (`catalog.attach`), never the DDL text, and a statement the server rejects
+  has no object in the model (it is reported, not filled in from the text). `schema.py` and
+  the lint parser serve only static-only reviews and are not fixed further: a gap that only
+  static mode shows becomes a `pitfalls.md` entry marked "not detected (static only)", never a
+  GAPS.md item. Recall runs on both paths (`recall.py`, `recall.py --server`).
+
+- **Never commit version-specific caches.** `skills/yb-model/rules/versions.json` (release
+  facts, built by `yb-model.py update-versions` from the yugabyte-db source) and
+  `skills/yb-model/rules/observations.json` (written by `evals/yb-model/oracle.py`) are local
+  caches built for the releases being reviewed, and are in `.gitignore`. Commit the code that
+  builds them, never their output. The same applies to anything else derived per release:
+  replay plans, probe results, review outputs.
+- **Commit generators, not generated bulk data.** A fixture carries the frozen capture its tests
+  read (`bundle/`) plus the scripts that rebuild it (`build.sh`, `gen_workload.py`), not
+  thousands of generated lines.
+- **No release numbers or release behaviour in the rules.** A rule states a mechanism and cites
+  the regress test that pins it (`scripts/check-rule-refs.py`); per-release facts come from the
+  cache, and execution claims are verified per release by the rule's probe.
+- **No customer data.** Customer schemas, statistics and reviews go under
+  `evals/yb-model/fixtures-private/` (ignored). Nothing derived from them, including names,
+  numbers and commit messages, goes into a commit.
+- **A finding's DDL is a list of structured changes, never text.** Build it with the
+  constructors in `scripts/ybm/changes.py` (`replace`, `create`, `drop`, `check`, `rekey`,
+  `retire`); the text is rendered from them. The option checks, the plan check and the
+  self-check read the structure; nothing in the engine parses its own DDL back (`Finding.ddl` rejects a string).
+- **The review offers options; it prints no DDL.** A finding's text gives reasons, never an
+  instruction or a statement (the `prescriptions` check in the tests scans whole reviews).
+  What could be done lives in the rule's `options` (every rule with options has `keep`); the
+  engine checks the options it can model and shows their costs, never amends or chooses one.
+  DDL is printed only by `yb-model.py sketch`, for an option the user chose.
+- **Recommended DDL must run on YSQL and lose nothing by omission.** Write replacement indexes
+  with `schema.index_sql` (it carries UNIQUE, INCLUDE, the predicate and SPLIT) and drops with
+  `schema.drop_sql` (plain `DROP INDEX`, or `ALTER TABLE ... DROP CONSTRAINT` for a
+  constraint's index; YSQL rejects `DROP INDEX CONCURRENTLY`). Write names with `schema.qi`
+  and expressions with `sqltok.expr_of`, so quoted mixed-case names keep their quotes; the
+  `Metamorphic` tests review the fixture again with every name quoted and as a colocated
+  database, and a new template must pass both. A fix that removes something (an index, a key,
+  a column) carries DDL the safety pass checks; prose alone never recommends dropping a primary
+  key, a unique index or a column that an index references.
+- **State what a statistic can show on YSQL.** For example, `pg_stats.correlation` follows the
+  primary key's order, not insert order. A rule that reads a statistic says what it rests on,
+  and holds back rather than guesses when the statistic cannot decide.
+- **Every surprise ends in a fix or a pitfall.** Reviewers record what the skill did not
+  expect in their own list (`yb-model.py pitfall add`, kept in `~/.yb-model/pitfalls.md`;
+  `pitfall export` prints it). Either fix the engine with a test, or add a generic entry to
+  `skills/yb-model/references/pitfalls.md` with the engine's status: `handled`, `flagged` or
+  `not detected`. A handled or flagged entry names the test that pins it (the `Pitfalls` test
+  checks the name exists). Never put customer names, table names or values there.
+- **The chat message is engine-written.** `review` writes `chat.md` from `review.json`; the
+  skill pastes it. Do not move wording the user sees back into model-written text.
+- **Keep PRs reviewable.** The hosted reviewer stops at 3,000 changed lines; split larger
+  changes into stacked PRs, each building on the one before.
+- **Test before opening the PR:**
+  `python3 -m unittest discover -s skills/yb-model/scripts -p 'test_*.py'`. Tests must pass
+  without the caches above.
 
 ## Installation Commands (for reference)
 

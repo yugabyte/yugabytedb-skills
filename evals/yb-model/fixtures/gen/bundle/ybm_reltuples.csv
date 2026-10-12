@@ -1,0 +1,8 @@
+schemaname,relname,relkind,reltuples
+public,parent,r,50000
+public,child,r,2000000
+public,ev,p,0
+public,ev_q1,r,600000
+public,ev_q2,r,600000
+public,node,r,80000
+public,loose,r,300000

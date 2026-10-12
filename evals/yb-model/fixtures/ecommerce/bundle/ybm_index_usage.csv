@@ -1,0 +1,15 @@
+schemaname,relname,indexrelname,idx_scan,idx_tup_read,idx_tup_fetch
+public,audit_log_2026q1,audit_log_2026q1_pkey,200,51,0
+public,audit_log_2026q2,audit_log_2026q2_pkey,200,51,0
+public,audit_log_2026q3,audit_log_2026q3_pkey,200,57,0
+public,audit_log_2026q4,audit_log_2026q4_pkey,200,41,0
+public,customers,customers_email,0,0,0
+public,customers,customers_pkey,900,900,0
+public,events,events_pkey,0,0,0
+public,order_items,order_items_pkey,0,0,0
+public,orders,orders_customer,100,375,0
+public,orders,orders_customer_created,1500,5263,0
+public,orders,orders_pkey,400,400,0
+public,orders,orders_status,150,150,0
+public,orders,orders_total,0,0,0
+public,shipments,shipments_pkey,300,900,0

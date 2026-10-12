@@ -1,0 +1,1200 @@
+{
+  "about": "Rule catalog for yb-model. Each rule has a fixed base severity, a mechanism, a fix template and, where one exists, the yugabyte-db regress test that pins the behaviour. 'test' anchors are fixed strings that appear in src/postgres/src/test/regress/expected/<file>; scripts/check-rule-refs.py verifies them per release tag. kind: capability = decided by planner/storage code, independent of data; cost = depends on statistics and cost-model settings; stats = needs pg_stats; workload = needs pg_stat_statements; config = cluster settings; lint = DDL text only; plan = read from a replayed EXPLAIN. 'section': 'hygiene' marks rules about how the application uses the database; the report lists them separately for the application team. 'requires' lists settings a fix depends on; when rules/versions.json shows one absent on the customer's release, 'fix_if_unavailable' replaces 'fix'. No release numbers are written by hand: release facts come from versions.json (extracted from yugabyte-db) and observations.json (written by the planner oracle).",
+  "severity_order": [
+    "critical",
+    "high",
+    "medium",
+    "low",
+    "info"
+  ],
+  "rules": {
+    "CAP001": {
+      "kind": "capability",
+      "severity": "high",
+      "title": "Hash key not fully bound: index unusable for this pattern",
+      "mechanism": "A hash-sharded key is located by hashing every column of the hash group. A predicate that binds only part of the group, or binds it with a range, cannot compute the hash code, so the planner cannot use the index as an access path and falls back to a scan with a storage filter. With the cost model on, the planner may instead show an Index Scan with an Index Cond on the bound hash columns; it is still a full scan. Its probe checks this on the customer's release.",
+      "fix": "A hash group the pattern does not bind completely cannot locate rows by hash; the options are binding every hash column, or an index on the columns it binds.",
+      "test": [
+        {
+          "file": "yb.orig.planner_indexes.out",
+          "anchor": "EXPLAIN SELECT * from t4 where h1 = 1;"
+        },
+        {
+          "file": "yb.orig.planner_indexes.out",
+          "anchor": "EXPLAIN SELECT * from t4 where h1 = 1 and h2 > 10;"
+        }
+      ],
+      "probe": {
+        "setup": [
+          "DROP TABLE IF EXISTS ybm_p01;",
+          "CREATE TABLE ybm_p01 (h1 int NOT NULL, h2 int NOT NULL, r int NOT NULL, v text, PRIMARY KEY ((h1, h2) HASH, r ASC));",
+          "INSERT INTO ybm_p01 SELECT n % 50, n, n, repeat('x', 50) FROM generate_series(1, 20000) n;",
+          "ANALYZE ybm_p01;"
+        ],
+        "cases": {
+          "claim": "SELECT * FROM ybm_p01 WHERE h1 = 7",
+          "control": "SELECT * FROM ybm_p01 WHERE h1 = 7 AND h2 = 7"
+        },
+        "applies": [
+          "claim.returned >= 100"
+        ],
+        "holds": [
+          "claim.scanned >= 18000",
+          "control.scanned <= 10"
+        ]
+      },
+      "options": [
+        {
+          "id": "bind_all",
+          "label": "Make the query bind every hash column with equality",
+          "when": "the query can supply the missing columns",
+          "tradeoff": "an application change",
+          "check_first": "where the query gets its parameters",
+          "change": "none"
+        },
+        {
+          "id": "index_bound",
+          "label": "Add an index whose hash group is exactly the bound columns",
+          "when": "the query cannot change",
+          "tradeoff": "write cost of one more index",
+          "check_first": "that the bound columns are selective",
+          "change": "add"
+        },
+        {
+          "id": "rekey",
+          "label": "Change the primary key so its hash group is the bound columns (a table swap)",
+          "when": "the index is the primary key and every hot pattern binds those columns",
+          "tradeoff": "a copy of the table and a swap; foreign keys must move",
+          "check_first": "every pattern that reads by the primary key",
+          "change": "rekey"
+        },
+        {
+          "id": "hash_ranges",
+          "label": "Split chunked scans on yb_hash_code ranges",
+          "when": "the query is a batch or export walking a range",
+          "tradeoff": "an application change",
+          "check_first": "how the batch splits its work",
+          "change": "none"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP002": {
+      "kind": "capability",
+      "severity": "high",
+      "title": "No index leads with any filtered column",
+      "mechanism": "None of the table's access paths start with a column this pattern filters on, so every execution reads the whole table and filters in storage.",
+      "fix": "No index leads with a filtered column, so the table is scanned; see the options.",
+      "test": [
+        {
+          "file": "yb.orig.planner_indexes.out",
+          "anchor": "Storage Filter: (h1 = 1)"
+        }
+      ],
+      "options": [
+        {
+          "id": "add_index",
+          "label": "Add an index led by the most selective equality column",
+          "when": "the query cannot supply a key column",
+          "tradeoff": "write cost of one more index",
+          "check_first": "the selectivity of the filtered columns",
+          "change": "add"
+        },
+        {
+          "id": "bind_key",
+          "label": "Make the query supply a key column",
+          "when": "the application can change",
+          "tradeoff": "an application change",
+          "check_first": "where the query gets its parameters",
+          "change": "none"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP003": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Only non-sargable predicates on this table",
+      "mechanism": "The pattern filters this table only with predicates no LSM index can seek on: inequality (!=, NOT IN), a leading-wildcard LIKE, a function on a column without a matching expression index, or a row comparison over hash keys. The predicate becomes a storage filter over a full scan.",
+      "fix": "Only non-seekable predicates reach the table; see the options.",
+      "test": [
+        {
+          "file": "yb.orig.index_selectivity.out",
+          "anchor": "-- Use '!=' on hash column."
+        },
+        {
+          "file": "yb.orig.index_scan.out",
+          "anchor": "Storage Filter: (lower((col7)::text) = 'dd'::text)"
+        }
+      ],
+      "options": [
+        {
+          "id": "rewrite",
+          "label": "Rewrite the predicate into a seekable form",
+          "when": "the application can change",
+          "tradeoff": "an application change",
+          "check_first": "the predicate's meaning stays the same",
+          "change": "none"
+        },
+        {
+          "id": "expression_index",
+          "label": "Add an expression index that matches the query text exactly",
+          "when": "the query cannot change",
+          "tradeoff": "write cost; the expression must match exactly",
+          "check_first": "the expression as the query writes it",
+          "change": "add"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP010": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "ORDER BY not served by the access path: explicit sort",
+      "mechanism": "Rows come back in index order only when every hash column is bound by equality and the ORDER BY columns follow the remaining range columns in key order, all in the key direction or all reversed. Otherwise the executor sorts every matching row before LIMIT can apply.",
+      "fix": "The access path does not deliver the requested order, so rows are sorted; see the options.",
+      "test": [
+        {
+          "file": "yb.orig.index_selectivity.out",
+          "anchor": "-- HASH column is not completely specified while ordering by RANGE column"
+        }
+      ],
+      "options": [
+        {
+          "id": "ordered_index",
+          "label": "Add an index in the requested order (equality columns hashed, ORDER BY columns after)",
+          "when": "the sort is large or the query is hot",
+          "tradeoff": "write cost of one more index",
+          "check_first": "the result size before LIMIT",
+          "change": "add"
+        },
+        {
+          "id": "keep",
+          "label": "Accept the sort",
+          "when": "the result is small",
+          "tradeoff": "a sort per execution",
+          "check_first": "the result size",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP011": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "IN-list on hash key with ORDER BY range column and LIMIT",
+      "mechanism": "Each IN value is a separate hash bucket, so no single index stream is ordered. Without merge scan streams the executor fetches every matching row from every bucket and sorts. With yb_max_merge_scan_streams above 0 the storage layer merges the ordered streams and LIMIT stops early.",
+      "fix": "Without merge scan streams every matching row of every IN value is fetched and sorted before LIMIT. yb_max_merge_scan_streams above 0 (per session or role, validated on the target release) lets LIMIT stop early; one query per key, or a range-sharded key, would also avoid the sort.",
+      "test": [
+        {
+          "file": "yb.orig.merge_scan_hash.out",
+          "anchor": "Merge Streams: 9"
+        }
+      ],
+      "requires": [
+        "yb_max_merge_scan_streams"
+      ],
+      "fix_if_unavailable": "This release has no merge scan streams, so every matching row of every IN value is fetched and sorted before LIMIT; one query per key (UNION ALL ... ORDER BY ... LIMIT), a range-sharded key, or an upgrade would avoid it."
+    },
+    "CAP020": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Secondary index does not cover the pattern: base-table fetch",
+      "mechanism": "An Index Only Scan needs every referenced column (projection, filter, ordering) in the index key or INCLUDE list. Otherwise each matching index row costs a distributed lookup into the base table, a network hop rather than a local page read.",
+      "fix": "The index lacks columns the query reads, so each row is fetched from the base table; see the options.",
+      "test": [
+        {
+          "file": "yb.orig.index_scan.out",
+          "anchor": "-- test index only scan with non-target column refs in qual (github issue #9176)"
+        }
+      ],
+      "options": [
+        {
+          "id": "include",
+          "label": "Add the missing columns to the index (INCLUDE)",
+          "when": "the columns are small and rarely updated",
+          "tradeoff": "a larger index and a rebuild",
+          "check_first": "column sizes and how often they change",
+          "change": "rebuild"
+        },
+        {
+          "id": "fewer_columns",
+          "label": "Select fewer columns",
+          "when": "the application can change",
+          "tradeoff": "an application change",
+          "check_first": "which columns the caller uses",
+          "change": "none"
+        },
+        {
+          "id": "keep",
+          "label": "Accept the fetch",
+          "when": "the pattern is not hot or the rows are few",
+          "tradeoff": "one base-table read per row",
+          "check_first": "the pattern's weight",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP021": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Partial index predicate not implied by the query",
+      "mechanism": "The planner uses a partial index only when it can prove the query's WHERE implies the index's WHERE. A generic parameter or a missing predicate breaks the proof, so the index is ignored.",
+      "fix": "The query does not imply the index predicate, so the partial index cannot serve it; see the options.",
+      "test": [
+        {
+          "file": "yb.orig.planner_indexes.out",
+          "anchor": "-- Should still use t1_v1_v2_idx because partial index condition does not match."
+        }
+      ],
+      "options": [
+        {
+          "id": "repeat_predicate",
+          "label": "Repeat the index predicate in the query",
+          "when": "the application can change",
+          "tradeoff": "an application change",
+          "check_first": "that the predicate holds for every row the query wants",
+          "change": "none"
+        },
+        {
+          "id": "full_index",
+          "label": "Make the index cover every row (drop its predicate)",
+          "when": "many queries cannot repeat the predicate",
+          "tradeoff": "a larger index and a rebuild",
+          "check_first": "why the index was made partial",
+          "change": "rebuild"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP030": {
+      "kind": "capability",
+      "severity": "high",
+      "title": "Partitioned table probed without the partition key: fan-out",
+      "mechanism": "Without a predicate on the partition key the planner cannot prune, so it probes every partition. Each probe is at least one distributed read, so latency grows with partition count even for a point lookup.",
+      "fix": "A query without the partition key probes every partition; the options are supplying the key in the query, or partitioning on what the queries bind.",
+      "test": [
+        {
+          "file": "yb.orig.partition_prune.out",
+          "anchor": "Append (actual rows=2 loops=1)"
+        }
+      ],
+      "options": [
+        {
+          "id": "bind_partition_key",
+          "label": "Make the query supply the partition key or a bound on it",
+          "when": "the application knows the partition",
+          "tradeoff": "an application change",
+          "check_first": "where the query can get the key",
+          "change": "none"
+        },
+        {
+          "id": "repartition",
+          "label": "Partition on the column the queries bind",
+          "when": "most queries cannot supply the current key",
+          "tradeoff": "a table rebuild",
+          "check_first": "how queries and retention use the current key",
+          "change": "rekey"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP031": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Join column on the inner side has no usable index",
+      "mechanism": "Batched nested loop joins push the outer keys into the inner index as an IN list. If no index on the inner table is bound by the join columns, the inner side is a full scan per batch or the planner picks a hash join that reads the whole inner table.",
+      "fix": "An index on the inner table's join column (as the full hash group or the leading range column) would let each outer row seek.",
+      "test": [
+        {
+          "file": "yb.orig.join_batching.out",
+          "anchor": "YB Batched Nested Loop Join"
+        }
+      ]
+    },
+    "CAP040": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "OR across columns needs a bitmap scan",
+      "mechanism": "An OR over different columns cannot use a single index range. It needs a BitmapOr over several indexes, which only exists when bitmap scans are enabled; otherwise the table is scanned.",
+      "fix": "With yb_enable_bitmapscan on the target and an index on each OR arm, or as a UNION ALL of seekable queries, each arm would seek; confirm the setting there.",
+      "test": [
+        {
+          "file": "yb.orig.bitmap_scan_plan.out",
+          "anchor": "BitmapOr"
+        },
+        {
+          "file": "yb.orig.planner_indexes.out",
+          "anchor": "EXPLAIN SELECT * from t4 where h1 = 1 or h2 = 2;"
+        }
+      ],
+      "requires": [
+        "yb_enable_bitmapscan"
+      ],
+      "fix_if_unavailable": "Bitmap scans do not exist on this release: only a UNION ALL of seekable queries, with an index on each OR arm, or an upgrade would let each arm seek."
+    },
+    "STA001": {
+      "kind": "stats",
+      "severity": "high",
+      "title": "Nullable leading hash column holds many NULLs",
+      "mechanism": "All NULLs hash to one code, so they land in one tablet. A tablet whose split key would reduce to that single hash code cannot be split, so it grows without bound. A unique index declared NULLS NOT DISTINCT admits at most one NULL key and is exempt.",
+      "fix": "All NULL keys hash to one tablet; see the options.",
+      "test": [],
+      "options": [
+        {
+          "id": "partial",
+          "label": "Index only the rows that have a value (WHERE <col> IS NOT NULL)",
+          "when": "the queries that use this index always supply a value for the column",
+          "tradeoff": "a query uses it only if it repeats the predicate or binds the column with equality",
+          "check_first": "every ranked pattern that reads through the index binds the column",
+          "change": "rebuild"
+        },
+        {
+          "id": "lead_with_other",
+          "label": "Lead the index with a NOT NULL, high-cardinality column the queries also bind",
+          "when": "the queries bind another selective column",
+          "tradeoff": "a different index layout; queries that bind only this column stop using it",
+          "check_first": "which columns the hot patterns bind with equality",
+          "change": "rebuild"
+        },
+        {
+          "id": "not_null",
+          "label": "Give the column a value and declare it NOT NULL",
+          "when": "NULL stands for a default the application could store instead",
+          "tradeoff": "a backfill and an application change",
+          "check_first": "what NULL means to the application",
+          "change": "column"
+        },
+        {
+          "id": "drop",
+          "label": "Remove the index",
+          "when": "no hot pattern needs it",
+          "tradeoff": "queries that used it scan instead",
+          "check_first": "idx_scan on every node, and batch or periodic jobs",
+          "change": "drop"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "STA002": {
+      "kind": "stats",
+      "severity": "high",
+      "title": "Low-cardinality hash key",
+      "mechanism": "A hash key cannot spread rows over more hash codes than it has distinct values. Below a few thousand values the relation behaves as a handful of hot tablets regardless of tablet count.",
+      "fix": "Few values on a hash key put many rows on one tablet; see the options.",
+      "test": [],
+      "options": [
+        {
+          "id": "composite",
+          "label": "Add a high-cardinality column the queries also bind to the hash group",
+          "when": "the hot patterns bind another selective column with equality",
+          "tradeoff": "queries that bind only the current column stop using the index",
+          "check_first": "which columns the hot patterns bind with equality",
+          "change": "rebuild"
+        },
+        {
+          "id": "partial",
+          "label": "Index only the rare value the queries look for (a partial index on another column)",
+          "when": "queries target one uncommon value of this column",
+          "tradeoff": "covers only that value",
+          "check_first": "which values the queries filter on",
+          "change": "add"
+        },
+        {
+          "id": "drop",
+          "label": "Remove the index",
+          "when": "no hot pattern needs it",
+          "tradeoff": "queries that used it scan instead",
+          "check_first": "idx_scan on every node, and batch or periodic jobs",
+          "change": "drop"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "STA003": {
+      "kind": "stats",
+      "severity": "medium",
+      "title": "Value-skewed hash key",
+      "mechanism": "One value holds a large share of rows, so one hash code (one tablet) holds that share. Splitting cannot divide a single hash code.",
+      "fix": "One value's rows share one hash code, which no split can divide; see the options: a composite hash group, or the dominant value kept apart.",
+      "test": [],
+      "options": [
+        {
+          "id": "composite",
+          "label": "Add a high-cardinality column the queries also bind to the hash group",
+          "when": "the queries that hit the common value also bind another selective column",
+          "tradeoff": "queries that bind only the current column stop using the index",
+          "check_first": "which columns the hot patterns bind with equality",
+          "change": "rebuild"
+        },
+        {
+          "id": "separate_hot_value",
+          "label": "Handle the dominant value apart (a partial index that leaves it out, or another table)",
+          "when": "the dominant value is a placeholder or default rather than real data",
+          "tradeoff": "queries for the dominant value need their own path",
+          "check_first": "what the dominant value means",
+          "change": "rebuild"
+        },
+        {
+          "id": "drop",
+          "label": "Remove the index",
+          "when": "no hot pattern needs it",
+          "tradeoff": "queries that used it scan instead",
+          "check_first": "idx_scan on every node, and batch or periodic jobs",
+          "change": "drop"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "STA004": {
+      "kind": "stats",
+      "severity": "high",
+      "title": "Monotonic leading range key on a written table",
+      "mechanism": "When values arrive in increasing order (a sequence, a creation timestamp), every insert lands in the last range tablet. That tablet is a write hotspot, and splitting only moves the hotspot to the new last tablet. In YSQL, pg_stats correlation measures agreement with the primary key order, not insert order, so the rule needs a sequence default, a time-typed or creation-named column, or (for a secondary index) correlation with a primary key that is itself insert-ordered. Measured writes raise its severity and confidence but never fire it alone.",
+      "fix": "Insert-ordered keys concentrate inserts on one tablet; see the options.",
+      "test": [],
+      "options": [
+        {
+          "id": "bucket",
+          "label": "Bucket the index so inserts spread over several tablets",
+          "when": "range queries on the column are still needed",
+          "tradeoff": "ORDER BY on the column merges the buckets",
+          "check_first": "the range and ORDER BY patterns that use the index",
+          "change": "rebuild"
+        },
+        {
+          "id": "hash",
+          "label": "Hash the key",
+          "when": "the column is only looked up by equality",
+          "tradeoff": "range scans and ORDER BY on the column stop using the index",
+          "check_first": "that no pattern needs a range or the order of this column",
+          "change": "rebuild"
+        },
+        {
+          "id": "rekey",
+          "label": "Change the primary key (a table swap)",
+          "when": "the primary key itself is insert-ordered and the table is write-hot",
+          "tradeoff": "a copy of the table and a swap; foreign keys must move",
+          "check_first": "the write rate, and every foreign key that references the table",
+          "change": "rekey"
+        },
+        {
+          "id": "keep",
+          "label": "Keep it",
+          "when": "the insert rate is low enough that one hot tablet is acceptable",
+          "tradeoff": "inserts keep landing on one tablet",
+          "check_first": "the insert rate the table must sustain",
+          "change": "none"
+        },
+        {
+          "id": "drop",
+          "label": "Remove the index",
+          "when": "no hot pattern needs it",
+          "tradeoff": "queries that used it scan instead",
+          "check_first": "idx_scan on every node, and batch or periodic jobs",
+          "change": "drop"
+        }
+      ]
+    },
+    "STA005": {
+      "kind": "stats",
+      "severity": "info",
+      "title": "Unique index on a column that contains NULLs",
+      "mechanism": "NULLs are distinct by default, so the unique index does not stop duplicate NULL rows (NULLS NOT DISTINCT does, and is exempt).",
+      "fix": "NULL is distinct from NULL, so many NULL rows can coexist; see the options.",
+      "test": [],
+      "options": [
+        {
+          "id": "nulls_not_distinct",
+          "label": "Treat NULLs as equal (UNIQUE ... NULLS NOT DISTINCT)",
+          "when": "at most one row may have a NULL key",
+          "tradeoff": "existing duplicate NULLs block the rebuild",
+          "check_first": "how many rows have a NULL key today",
+          "change": "rebuild"
+        },
+        {
+          "id": "partial",
+          "label": "Enforce uniqueness only where the column has a value",
+          "when": "NULL means 'not set' and many such rows are expected",
+          "tradeoff": "none for rows with a value",
+          "check_first": "what NULL means to the application",
+          "change": "rebuild"
+        },
+        {
+          "id": "keep",
+          "label": "Keep it as it is",
+          "when": "many NULL rows are intended",
+          "tradeoff": "none",
+          "check_first": "the intent",
+          "change": "none"
+        }
+      ]
+    },
+    "WRK001": {
+      "kind": "workload",
+      "severity": "high",
+      "title": "Measured read amplification",
+      "mechanism": "DocDB scanned many more rows than it returned for this statement, which is the signature of a scan doing an index's job or a storage filter discarding most rows.",
+      "fix": "Follow the access-path finding for this pattern; if none, inspect EXPLAIN (ANALYZE, DIST).",
+      "test": []
+    },
+    "WRK002": {
+      "kind": "workload",
+      "severity": "medium",
+      "title": "Many read RPCs per execution",
+      "mechanism": "Each execution makes many storage read requests, which points at partition fan-out, per-row base-table lookups from a non-covering index, or unbatched nested loops.",
+      "fix": "Follow the access-path finding for this pattern; confirm with EXPLAIN (ANALYZE, DIST).",
+      "test": []
+    },
+    "WRK003": {
+      "kind": "workload",
+      "severity": "medium",
+      "title": "Index never scanned",
+      "mechanism": "idx_scan is 0 since statistics were last reset, yet every write to the table maintains the index as an extra participant.",
+      "fix": "An index no node scans costs writes; whether it is unused depends on idx_scan on every node and on jobs outside the capture window.",
+      "test": [],
+      "options": [
+        {
+          "id": "drop",
+          "label": "Remove the index after checking every node",
+          "when": "no node shows scans and no periodic job needs it",
+          "tradeoff": "a query that needed it scans instead",
+          "check_first": "idx_scan on every node, the stats window, and month-end or batch jobs",
+          "change": "drop"
+        },
+        {
+          "id": "keep",
+          "label": "Keep it",
+          "when": "a job outside the captured window uses it",
+          "tradeoff": "write cost on every insert and update",
+          "check_first": "the jobs the capture window missed",
+          "change": "none"
+        }
+      ]
+    },
+    "WRK004": {
+      "kind": "workload",
+      "severity": "medium",
+      "title": "Write-hot table carries many secondary indexes",
+      "mechanism": "Each secondary index is a separate distributed relation written in the same transaction, so every insert or key update adds a participant and an RPC.",
+      "fix": "Each secondary index is written with every insert or key update; the unique ones enforce constraints, and the index findings show which of the others serve nothing; see the options.",
+      "test": [],
+      "options": [
+        {
+          "id": "fewer_indexes",
+          "label": "Remove the indexes the index findings show unused",
+          "when": "WRK003 or IDX001 report some of them",
+          "tradeoff": "queries that used them scan instead",
+          "check_first": "idx_scan on every node",
+          "change": "drop"
+        },
+        {
+          "id": "merge_prefixes",
+          "label": "Merge indexes that share a prefix",
+          "when": "two indexes lead with the same columns",
+          "tradeoff": "one rebuild",
+          "check_first": "the patterns that use each",
+          "change": "rebuild"
+        },
+        {
+          "id": "fewer_writes",
+          "label": "Reduce the writes (fewer updates of indexed columns, batched inserts)",
+          "when": "the application can change",
+          "tradeoff": "an application change",
+          "check_first": "the write patterns",
+          "change": "none"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "IDX001": {
+      "kind": "workload",
+      "severity": "low",
+      "title": "Index serves no ranked access pattern",
+      "mechanism": "No ranked pattern can use this index as its access path, so it is pure write cost for the workload captured.",
+      "fix": "idx_scan covers only the nodes captured and the time since the last statistics reset, and workload missing from pg_stat_statements may still read the index: the drop option's check covers both.",
+      "test": [],
+      "options": [
+        {
+          "id": "drop",
+          "label": "Remove the index after checking every node",
+          "when": "idx_scan is 0 on every node and no job outside the workload needs it",
+          "tradeoff": "a query outside the capture that needed it scans instead",
+          "check_first": "idx_scan on every node, and workload missing from pg_stat_statements",
+          "change": "drop"
+        },
+        {
+          "id": "keep",
+          "label": "Keep it",
+          "when": "something outside the captured workload uses it",
+          "tradeoff": "write cost on every insert and update",
+          "check_first": "who uses it",
+          "change": "none"
+        }
+      ]
+    },
+    "CFG001": {
+      "kind": "config",
+      "severity": "medium",
+      "title": "Planner runs without the cost model or without statistics",
+      "mechanism": "With the YB cost model off, or with statistics unused, the planner picks index versus scan with heuristics that ignore table size and selectivity. Plans then change when the setting changes.",
+      "fix": "Run ANALYZE on every table and evaluate yb_enable_cbo=on (or yb_enable_base_scans_cost_model and yb_enable_optimizer_statistics on older releases) in staging.",
+      "test": [
+        {
+          "file": "yb.orig.planner_base_scans_cost_model.out",
+          "anchor": "yb_enable_base_scans_cost_model"
+        }
+      ]
+    },
+    "CFG002": {
+      "kind": "config",
+      "severity": "medium",
+      "title": "Default sharding is ASC here, and keys rely on the default",
+      "mechanism": "In a colocated database, a tablegroup, or with yb_use_hash_splitting_by_default off, an unannotated first key column is range-sharded, not hashed. Keys written assuming HASH get range semantics.",
+      "fix": "Keys whose lead column carries no explicit HASH, ASC or DESC take the default of the server and tool that create them, so the same DDL can shard differently elsewhere.",
+      "test": [
+        {
+          "file": "yb.orig.indexing_order.out",
+          "anchor": "NOTICE"
+        }
+      ]
+    },
+    "CFG003": {
+      "kind": "config",
+      "severity": "info",
+      "title": "DocDB statement statistics not available",
+      "mechanism": "pg_stat_statements has no docdb_* values, so read amplification and RPC counts per statement cannot be measured.",
+      "fix": "Enable yb_enable_pg_stat_statements_rpc_stats (superuser) and recapture.",
+      "test": []
+    },
+    "PLN001": {
+      "kind": "plan",
+      "severity": "high",
+      "title": "Replayed plan: Seq Scan on a large table",
+      "mechanism": "With the customer's statistics injected, the planner chose a full scan of a large table for a ranked pattern.",
+      "fix": "See the access-path finding for this pattern.",
+      "test": [
+        {
+          "file": "yb.orig.planner_taqo_tuning_tests.out",
+          "anchor": "Seq Scan on t_range_100k"
+        }
+      ]
+    },
+    "PLN002": {
+      "kind": "plan",
+      "severity": "medium",
+      "title": "Replayed plan: Sort feeding a Limit",
+      "mechanism": "The planner sorts every qualifying row before returning the first few.",
+      "fix": "See CAP010 / CAP011 for this pattern.",
+      "test": [
+        {
+          "file": "yb.orig.join_batching.out",
+          "anchor": "EXPLAIN (COSTS OFF) SELECT q1nulls.a, q1nulls.b FROM q1nulls, q2 WHERE q1nulls.b = q2.c2 ORDER BY q1nulls.a ASC LIMIT 10;"
+        }
+      ]
+    },
+    "PLN003": {
+      "kind": "plan",
+      "severity": "high",
+      "title": "Replayed plan: Append over unpruned partitions",
+      "mechanism": "The plan visits several partitions for one execution.",
+      "fix": "See CAP030 for this pattern.",
+      "test": [
+        {
+          "file": "yb.port.partition_prune.out",
+          "anchor": "explain (costs off) select * from lp where a <> 'a' and a <> 'd';"
+        }
+      ]
+    },
+    "PLN004": {
+      "kind": "plan",
+      "severity": "low",
+      "title": "Replayed plan: Index Scan on a secondary index (base-table fetch)",
+      "mechanism": "The chosen secondary index is not covering, so rows are fetched from the base table.",
+      "fix": "See CAP020 for this pattern.",
+      "test": [
+        {
+          "file": "yb.orig.index_scan.out",
+          "anchor": "-- test index only scan with non-target column refs in qual (github issue #9176)"
+        }
+      ]
+    },
+    "SPL001": {
+      "kind": "stats",
+      "severity": "low",
+      "title": "Large relation still on one tablet",
+      "mechanism": "The relation (table or index) holds many rows but has one tablet, so one tserver leads every write to it until auto-split catches up, and auto-split of a hot tablet is itself disruptive. Indexes never inherit the table's split.",
+      "fix": "A relation created or rebuilt with SPLIT INTO <n> TABLETS, sized from its expected mature size and the node count, starts with its load spread; existing ones grow tablets only if auto-split is enabled, which is worth confirming.",
+      "test": []
+    },
+    "PRT001": {
+      "kind": "config",
+      "severity": "medium",
+      "title": "Partition runway running out",
+      "mechanism": "Inserts whose partition key falls past the last RANGE partition fail with 'no partition of relation found' when there is no DEFAULT partition. Nothing in the schema creates partitions ahead of time.",
+      "fix": "Inserts past the last partition fail unless a job creates partitions well ahead of need; confirm that job exists and covers the next periods. Retention, if any, is the same job's concern, and a DEFAULT partition is a safety net that later needs cleanup.",
+      "test": []
+    },
+    "STA006": {
+      "kind": "stats",
+      "severity": "low",
+      "title": "Columns never set in the sampled rows",
+      "mechanism": "A column with no non-NULL value in the sampled rows carries no data but still costs schema surface, ORM mapping and row width in replication and CDC. Columns an index references, event timestamps that stay NULL until the event happens, and columns that hold some data are left out.",
+      "fix": "Ask the application owners whether these columns are still written. Dropping a column also drops every index whose key, INCLUDE list or predicate references it; the columns listed are referenced by none.",
+      "test": []
+    },
+    "STA007": {
+      "kind": "stats",
+      "severity": "low",
+      "title": "Sentinel value in place of real data",
+      "mechanism": "A large share of rows hold a placeholder such as 0001-01-01, so the column no longer means what its name says and range predicates on it misbehave.",
+      "fix": "Store NULL or the real value; backfill where possible.",
+      "test": []
+    },
+    "STA008": {
+      "kind": "stats",
+      "severity": "medium",
+      "title": "Index on a boolean column",
+      "mechanism": "A boolean has at most two key values, so a hash index on it has two hash codes (two hot tablets at most) and no selectivity worth an index.",
+      "fix": "A boolean key has at most two values, so each is one large range on one tablet; see the options.",
+      "test": [],
+      "options": [
+        {
+          "id": "partial",
+          "label": "Index the rows with the rare value only (a partial index on another column WHERE flag)",
+          "when": "queries look for the rare value of the flag",
+          "tradeoff": "covers only those rows",
+          "check_first": "which value queries filter on and how rare it is",
+          "change": "add"
+        },
+        {
+          "id": "drop",
+          "label": "Remove the index",
+          "when": "nothing queries the flag selectively",
+          "tradeoff": "queries that used it scan instead",
+          "check_first": "idx_scan on every node",
+          "change": "drop"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "WRK005": {
+      "kind": "workload",
+      "severity": "medium",
+      "title": "Hot lookup that always returns no rows",
+      "mechanism": "Every call pays a distributed read for an empty answer.",
+      "fix": "Confirm with the application why the lookup misses; cache the negative result or skip the call.",
+      "test": [],
+      "section": "hygiene"
+    },
+    "WRK006": {
+      "kind": "workload",
+      "severity": "medium",
+      "title": "Planning time is a large share of statement time",
+      "mechanism": "Statements are re-planned on most executions, so short OLTP lookups spend a large share of their time in the planner.",
+      "fix": "Enable protocol-level prepared statements with plan caching in the driver or ORM.",
+      "test": [],
+      "section": "hygiene"
+    },
+    "CFG004": {
+      "kind": "config",
+      "severity": "high",
+      "title": "Primary key sharding not visible in the dump",
+      "mechanism": "Without --include-yb-metadata the dump omits HASH/ASC annotations and tablet splits, so the actual sharding of every unannotated primary key is inferred from defaults rather than observed.",
+      "fix": "A dump taken with ysql_dump --schema-only --include-yb-metadata would show the sharding as created; keys with no explicit HASH, ASC or DESC take the default of whatever creates them.",
+      "test": []
+    },
+    "CFG005": {
+      "kind": "config",
+      "severity": "medium",
+      "title": "Tables without statistics",
+      "mechanism": "Tables with no pg_stats rows have never been analyzed, so the cost model plans them with defaults.",
+      "fix": "ANALYZE them and confirm auto-analyze is enabled.",
+      "test": []
+    },
+    "CAP050": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Primary key does not serve the table's lookups",
+      "mechanism": "Every ranked read goes through the same non-covering secondary index and then fetches each row from the base table by its primary key: two distributed reads per row where a primary key led by the lookup column would need one.",
+      "fix": "Lookups by another column fetch every row from the base table; see the options.",
+      "test": [
+        {
+          "file": "yb.orig.index_scan.out",
+          "anchor": "-- test index only scan with non-target column refs in qual (github issue #9176)"
+        }
+      ],
+      "options": [
+        {
+          "id": "rekey",
+          "label": "Change the primary key to lead with the lookup column (a table swap)",
+          "when": "every hot read looks the table up that way",
+          "tradeoff": "a copy of the table and a swap; foreign keys must move",
+          "check_first": "every pattern that reads by the current primary key",
+          "change": "rekey"
+        },
+        {
+          "id": "cover",
+          "label": "Cover the lookups with INCLUDE on the index they use",
+          "when": "the read columns are few and small",
+          "tradeoff": "a larger index",
+          "check_first": "column sizes",
+          "change": "rebuild"
+        },
+        {
+          "id": "keep",
+          "label": "Accept the fetch",
+          "when": "the reads are not hot",
+          "tradeoff": "one base-table read per row",
+          "check_first": "the pattern weights",
+          "change": "none"
+        }
+      ]
+    },
+    "WRK007": {
+      "kind": "workload",
+      "section": "hygiene",
+      "severity": "medium",
+      "title": "Lookup returns many rows per call",
+      "mechanism": "Each call reads and ships thousands of rows. When the measured rows per call far exceed what the column's cardinality predicts, calls concentrate on the heaviest values.",
+      "fix": "Confirm the application needs every row (paginate or narrow the projection); for heavy values consider a summary table or caching.",
+      "test": []
+    },
+    "WRK008": {
+      "kind": "workload",
+      "section": "hygiene",
+      "severity": "low",
+      "title": "Full-table aggregate in the workload",
+      "mechanism": "COUNT(*) or GROUP BY without a filter reads every row of a large table on every call, competing with OLTP traffic.",
+      "fix": "For monitoring counts use pg_class.reltuples or an approximate count; for analytics, run against a read replica or with follower reads.",
+      "test": []
+    },
+    "WRK009": {
+      "kind": "workload",
+      "section": "hygiene",
+      "severity": "medium",
+      "title": "UPDATE or DELETE that mostly matches nothing",
+      "mechanism": "Most calls find no row to change, yet each still pays a distributed read and, for UPDATE, a write-intent check.",
+      "fix": "Confirm with the application why most calls match nothing; check existence once or batch the writes.",
+      "test": []
+    },
+    "WRK010": {
+      "kind": "workload",
+      "section": "hygiene",
+      "severity": "low",
+      "title": "UPDATE rewrites key or creation-time columns",
+      "mechanism": "The SET list includes columns the WHERE clause already pins, or creation-time columns, which is the signature of an ORM writing every column. It adds write cost and can clobber values (for example created_at).",
+      "fix": "Configure the ORM to write changed columns only (partial updates).",
+      "test": []
+    },
+    "CAP051": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Primary key unused beside a unique secondary",
+      "mechanism": "Every ranked read goes through a unique secondary index and then fetches the row by primary key: two distributed reads where one would do if the unique key were the primary key.",
+      "fix": "Reads go through the unique index and then fetch the row; see the options.",
+      "test": [
+        {
+          "file": "yb.orig.index_scan.out",
+          "anchor": "-- test index only scan with non-target column refs in qual (github issue #9176)"
+        }
+      ],
+      "options": [
+        {
+          "id": "swap_keys",
+          "label": "Make the unique key the primary key, keep the old key unique (a table swap)",
+          "when": "every hot read goes through the unique key",
+          "tradeoff": "a copy of the table and a swap; foreign keys must move",
+          "check_first": "every pattern and foreign key that uses the current primary key",
+          "change": "rekey"
+        },
+        {
+          "id": "cover",
+          "label": "Cover the reads with INCLUDE on the unique index",
+          "when": "the read columns are few and small",
+          "tradeoff": "a larger index",
+          "check_first": "column sizes",
+          "change": "rebuild"
+        },
+        {
+          "id": "keep",
+          "label": "Accept the fetch",
+          "when": "the reads are not hot",
+          "tradeoff": "one base-table read per row",
+          "check_first": "the pattern weights",
+          "change": "none"
+        }
+      ]
+    },
+    "CAP012": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Ordered index walk with a filter until LIMIT",
+      "mechanism": "No index can seek on the filter, but a range-led index matches ORDER BY, so the planner reads it in order and filters each row until LIMIT rows match. When matches are rare, that is most of the index.",
+      "fix": "An index with the filter columns first and the ORDER BY columns after them would seek and read only the LIMIT rows.",
+      "test": [
+        {
+          "file": "yb.orig.dml_systable_scan.out",
+          "anchor": "EXPLAIN (COSTS OFF) SELECT classid, objid, objsubid, refclassid, refobjid, deptype FROM pg_depend"
+        }
+      ],
+      "probe": {
+        "setup": [
+          "DROP TABLE IF EXISTS ybm_p12;",
+          "DROP TABLE IF EXISTS ybm_p12f;",
+          "CREATE TABLE ybm_p12 (id int NOT NULL, ts int NOT NULL, flag int NOT NULL, pad text, PRIMARY KEY ((id) HASH));",
+          "CREATE INDEX ybm_p12_ts ON ybm_p12 (ts ASC);",
+          "INSERT INTO ybm_p12 SELECT n, n, (n % 500 = 0)::int, repeat('x', 50) FROM generate_series(1, 20000) n;",
+          "CREATE TABLE ybm_p12f (id int NOT NULL, ts int NOT NULL, flag int NOT NULL, pad text, PRIMARY KEY ((id) HASH));",
+          "CREATE INDEX ybm_p12f_flag_ts ON ybm_p12f (flag ASC, ts ASC);",
+          "INSERT INTO ybm_p12f SELECT n, n, (n % 500 = 0)::int, repeat('x', 50) FROM generate_series(1, 20000) n;",
+          "ANALYZE ybm_p12;",
+          "ANALYZE ybm_p12f;"
+        ],
+        "cases": {
+          "claim": "/*+ IndexScan(ybm_p12 ybm_p12_ts) */ SELECT * FROM ybm_p12 WHERE flag = 1 ORDER BY ts LIMIT 10",
+          "control": "SELECT * FROM ybm_p12f WHERE flag = 1 ORDER BY ts LIMIT 10"
+        },
+        "applies": [
+          "claim.index == 'ybm_p12_ts'",
+          "not claim.sorted",
+          "claim.returned == 10"
+        ],
+        "holds": [
+          "claim.scanned >= 20 * claim.returned",
+          "control.scanned <= 3 * control.returned"
+        ]
+      }
+    },
+    "CAP060": {
+      "kind": "capability",
+      "severity": "high",
+      "title": "ON CONFLICT target has no matching unique index",
+      "mechanism": "INSERT ... ON CONFLICT (cols) needs a unique index or constraint whose key columns are exactly cols (in any order; a partial one only when the statement repeats its predicate in ON CONFLICT (cols) WHERE ...). ON CONFLICT ON CONSTRAINT name needs a primary key or unique constraint of that name; a unique index that backs no constraint cannot be named. Without one the statement fails with 'there is no unique or exclusion constraint matching the ON CONFLICT specification' on every execution, so the idempotent write it was meant to provide never happens.",
+      "fix": "Without a unique index on exactly the conflict columns the statement fails; see the options.",
+      "test": [
+        {
+          "file": "yb.port.insert_conflict.out",
+          "anchor": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (fruit) do nothing;"
+        }
+      ],
+      "options": [
+        {
+          "id": "unique_index",
+          "label": "Add a unique index on exactly the conflict columns",
+          "when": "the columns must be unique together",
+          "tradeoff": "write cost of one more index; NULLs never conflict",
+          "check_first": "that the columns are NOT NULL and have no duplicates today",
+          "change": "add"
+        },
+        {
+          "id": "change_target",
+          "label": "Change the statement's target to an existing unique key",
+          "when": "an existing unique index already decides conflicts",
+          "tradeoff": "an application change",
+          "check_first": "that the existing key gives the intended conflict behaviour",
+          "change": "none"
+        },
+        {
+          "id": "keep",
+          "label": "Leave it as it is",
+          "when": "the cost is acceptable for how the application uses this object, or another finding's change settles it",
+          "tradeoff": "the defect stays",
+          "check_first": "how the workload will grow",
+          "change": "none"
+        }
+      ]
+    },
+    "PLN005": {
+      "kind": "plan",
+      "severity": "high",
+      "title": "Replayed pattern fails on the release",
+      "mechanism": "The pattern was planned on the customer's release with the customer's schema and the planner rejected it. The application will get the same error.",
+      "fix": "Read the error with the pattern; fix the statement or the schema object it depends on.",
+      "test": [
+        {
+          "file": "yb.port.insert_conflict.out",
+          "anchor": "ERROR:  there is no unique or exclusion constraint matching the ON CONFLICT specification"
+        }
+      ]
+    },
+    "CAP013": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Keyset cursor is a row comparison only: rechecked, not sought",
+      "mechanism": "A cursor written as (a, b) < ($1, $2) appears in the plan as an Index Cond, but DocDB does not turn a row comparison into a seek bound: it scans from the start of the key prefix and the row comparison removes the rows before the cursor on recheck, after their base-table rows are fetched. Page n reads every row of pages 1..n. A plain bound on the first column (a <= $1) is pushed down as a seek. Its probe checks this on the customer's release.",
+      "fix": "DocDB seeks on a plain bound on the cursor's first column, not on the row comparison, which is only rechecked.",
+      "test": [
+        {
+          "file": "yb.orig.index_recheck.out",
+          "anchor": ":explain_analyze /*+ IndexScan(t) */ SELECT * FROM test_multiple_rechecks t WHERE ROW(a, b) < ROW(4, 4) AND c IN (1, 2, 3, 4, 5, 6) AND c < 4;"
+        }
+      ],
+      "probe": {
+        "setup": [
+          "DROP TABLE IF EXISTS ybm_p13;",
+          "CREATE TABLE ybm_p13 (c int NOT NULL, id int NOT NULL, ts int NOT NULL, pad text, PRIMARY KEY ((c) HASH, id ASC));",
+          "CREATE INDEX ybm_p13_tl ON ybm_p13 ((c) HASH, ts DESC, id DESC);",
+          "INSERT INTO ybm_p13 SELECT c, n, n, repeat('x', 50) FROM generate_series(1, 4) c, generate_series(1, 2000) n;",
+          "ANALYZE ybm_p13;"
+        ],
+        "cases": {
+          "claim": "SELECT * FROM ybm_p13 WHERE c = 3 AND (ts, id) < (100, 100) ORDER BY ts DESC, id DESC LIMIT 50",
+          "control": "SELECT * FROM ybm_p13 WHERE c = 3 AND ts <= 100 AND (ts, id) < (100, 100) ORDER BY ts DESC, id DESC LIMIT 50"
+        },
+        "applies": [
+          "claim.index == 'ybm_p13_tl'",
+          "control.index == 'ybm_p13_tl'"
+        ],
+        "holds": [
+          "claim.scanned >= 10 * claim.returned",
+          "control.scanned <= 3 * control.returned"
+        ]
+      }
+    },
+    "CAP014": {
+      "kind": "capability",
+      "severity": "medium",
+      "title": "Key column bound after an unbound one: a seek per value of the gap",
+      "mechanism": "The pattern binds the key's hash columns and leading range columns, leaves one or more range columns unbound (or only filtered, as with != or LIKE), and binds a later key column. DocDB cannot seek on the later column directly: it seeks under every distinct value of the gap columns within the bound prefix (a skip scan), so rows scanned stay close to rows returned while seeks grow with the number of distinct gap values. Plans show an Index Scan with the later column in its Index Cond; only seek counts (EXPLAIN (ANALYZE, DIST, DEBUG)) or timing show the cost. Its probe checks this on the customer's release. The regress test pins the plan shape (a later key column in the Index Cond with an earlier one unbound); the probe measures the seeks.",
+      "test": [
+        {
+          "file": "yb.orig.planner_base_scans_cost_model.out",
+          "anchor": "EXPLAIN (COSTS OFF) SELECT g, max(a) FROM t_23709 WHERE t <= '2024-09-30 00:00:00 +0000' GROUP BY g;"
+        }
+      ],
+      "fix": "The read costs a seek per distinct value of the skipped key columns, not per row returned; see the options.",
+      "options": [
+        {
+          "id": "rekey",
+          "label": "Put the bound columns before the skipped ones in the primary key (a table swap)",
+          "when": "the reads that skip are hot and no hot read binds the skipped columns without the moved one",
+          "tradeoff": "a copy of the table and a swap; reads that bind the skipped columns but not the moved one get the gap instead",
+          "check_first": "every pattern that reads through the primary key, and the foreign keys that reference the table",
+          "change": "rekey"
+        },
+        {
+          "id": "reorder",
+          "label": "Rebuild the index with the bound columns before the skipped ones",
+          "when": "the reads that skip are hot and no hot read binds the skipped columns without the moved one",
+          "tradeoff": "a rebuild; reads that bind the skipped columns but not the moved one get the gap instead",
+          "check_first": "every pattern that reads through the index",
+          "change": "rebuild"
+        },
+        {
+          "id": "index_bound_first",
+          "label": "Add an index that leads with the bound columns",
+          "when": "both orders are read often",
+          "tradeoff": "another copy of the key written on every insert and key update; reads that need other columns fetch them from the base table unless it covers them",
+          "check_first": "the table's write rate and the columns the reads return",
+          "change": "add"
+        },
+        {
+          "id": "keep",
+          "label": "Accept the seeks",
+          "when": "the skipped columns have few values under the bound prefix",
+          "tradeoff": "a seek per distinct value of the skipped columns on every such read",
+          "check_first": "the distinct counts of the skipped columns (pg_stats)",
+          "change": "none"
+        }
+      ],
+      "probe": {
+        "setup": [
+          "DROP TABLE IF EXISTS ybm_p14_gap; DROP TABLE IF EXISTS ybm_p14_ord;",
+          "CREATE TABLE ybm_p14_gap (h int NOT NULL, a int NOT NULL, g int NOT NULL, b int NOT NULL, v int, PRIMARY KEY ((h) HASH, a ASC, g ASC, b ASC));",
+          "CREATE TABLE ybm_p14_ord (h int NOT NULL, a int NOT NULL, g int NOT NULL, b int NOT NULL, v int, PRIMARY KEY ((h) HASH, a ASC, b ASC, g ASC));",
+          "INSERT INTO ybm_p14_gap SELECT 1, 1, g, b, 0 FROM generate_series(1, 400) g, generate_series(1, 10) b;",
+          "INSERT INTO ybm_p14_ord SELECT h, a, g, b, v FROM ybm_p14_gap;",
+          "ANALYZE ybm_p14_gap; ANALYZE ybm_p14_ord;"
+        ],
+        "cases": {
+          "claim": "SELECT v FROM ybm_p14_gap WHERE h = 1 AND a = 1 AND b = 3",
+          "control": "SELECT v FROM ybm_p14_ord WHERE h = 1 AND a = 1 AND b = 3"
+        },
+        "applies": [
+          "claim.index == 'ybm_p14_gap_pkey'",
+          "control.index == 'ybm_p14_ord_pkey'"
+        ],
+        "holds": [
+          "claim.seeks >= 50 * control.seeks"
+        ]
+      }
+    },
+    "MEAS001": {
+      "kind": "measured",
+      "severity": "low",
+      "title": "Unexplained, measured: the read does more work than the rows it returns",
+      "mechanism": "The measured pass ran the read on a small sample generated from the bundle's statistics (none of the customer's data; only the constants the statements bind), with the plan chosen under the full-scale statistics when the bundle has them, and counted DocDB seeks and rows scanned per row returned. The counts crossed a threshold and no finding on the pattern explains them. It is a lead for a closer look, not a diagnosis: the sample's shape is an estimate, and the plan on the customer's cluster may differ.",
+      "fix": "No rule covers this measurement: it is a lead for a closer look, and once explained it becomes a rule or a pitfalls.md entry."
+    }
+  }
+}

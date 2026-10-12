@@ -1,0 +1,10 @@
+SELECT seq, m, qty, tags FROM child WHERE pid = $1::bigint AND status = 'active';
+SELECT seq FROM child WHERE pid = $1::bigint AND m = 'happy';
+SELECT id FROM parent WHERE code = $1::text;
+SELECT v FROM ev WHERE id = $1::bigint AND ts >= '2026-02-01';
+SELECT lo, hi FROM node WHERE id = $1::bigint;
+SELECT id FROM node WHERE parent_id = $1::bigint;
+SELECT a FROM loose WHERE b = 'y';
+SELECT id FROM m2 WHERE id = $1::bigint AND r = 'a';
+SELECT b_id FROM ca WHERE id = $1::bigint;
+SELECT a_id FROM cb WHERE id = $1::bigint;

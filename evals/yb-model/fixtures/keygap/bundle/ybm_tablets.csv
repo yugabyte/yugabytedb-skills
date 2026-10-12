@@ -1,0 +1,5 @@
+schemaname,relname,num_tablets
+public,counters,1
+public,counters_by_bucket,1
+public,counters_by_bucket_pkey,
+public,counters_pkey,

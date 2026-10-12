@@ -98,6 +98,15 @@
       "skills": [
         "./skills/yb-query-analysis"
       ]
+    },
+    {
+      "name": "yb-model",
+      "description": "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, or pg_stat_statements output without a schema (yb-query-analysis); node metrics such as CPU, memory or I/O (yb-metrics-analysis); an open-ended universe health check (yb-performance-assessment); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql).",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yb-model"
+      ]
     }
   ]
 }

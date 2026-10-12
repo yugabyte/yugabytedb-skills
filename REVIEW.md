@@ -1,6 +1,6 @@
 # REVIEW.md — what to check when reviewing this repository
 
-This repository contains **agent skills**, not application code. Every file under `skills/` is Markdown that a coding agent loads and acts on. The only executable code is `scripts/check_skills.py` and its tests.
+This repository contains **agent skills**, not application code. Almost every file under `skills/` is Markdown that a coding agent loads and acts on. The executable code is `scripts/check_skills.py` and its tests, and the `yb-model` skill's engine (`skills/yb-model/scripts/`, with evals under `evals/yb-model/`); see [Reviewing the yb-model engine](#reviewing-the-yb-model-engine).
 
 That changes what a defect is. A wrong package name here is not a typo — an agent will run `pip install` on it. A parameter spelled the way a different driver spells it produces code that connects but silently loses the behaviour the user asked for. Review for **what an agent will do after reading the text**, not for prose style.
 
@@ -42,6 +42,21 @@ Known exceptions live in `.skills-lint.json`, each with a stated reason, and are
 - A conflict guarded in one direction only. If skill A warns about replacing B's dependency, B needs the mirror.
 - Anything that would make an agent take a destructive or irreversible action without surfacing the choice to the user.
 - Documentation in `AGENTS.md` that no longer matches what `scripts/check_skills.py` does. These drift, and the doc is what contributors read.
+
+## Reviewing the yb-model engine
+
+`yb-model` runs a deterministic Python engine and the agent reports its output verbatim, so an engine bug reaches the user as a confident finding. Beyond the points above, check:
+
+- **The report says only what the code checked.** A sentence in `report.py`, `SKILL.md` or `references/engine.md` that claims more than the code does (a check that covers fewer cases, a guarantee that depends on an input that may be missing) is a defect.
+- **Missing inputs degrade honestly.** Without pg_settings, release facts, statistics or a workload, a rule must be muted, weakened with a caveat, or made conditional; never decided by a default the customer may not run. The same holds for replay and probes: under assumed settings a probe or a replayed verdict on a sort or on partitions may dispute a finding, not remove it. A replayed plan's access stands under assumed settings, labelled; a plan chosen without the customer's statistics only corroborates (the engine's model decides the access, and findings stay probable). Either way every pattern where the plan and the model chose differently is listed in the review (path gaps).
+- **No finding without its basis.** Rules that claim planner or execution behaviour cite a regress test (`check-rule-refs.py` enforces this); the rest must be arithmetic on the bundle.
+- **Options never hide what they lose.** Uniqueness, foreign keys, ON CONFLICT targets, indexes in use and plans are checked for every option the engine can model, and the cost is shown with the option; the plan check does the same for the chosen combination. A change that bypasses these checks, or DDL an agent would run on the customer's cluster, is a defect.
+- **Recommended DDL runs on YSQL.** No `DROP INDEX CONCURRENTLY` (the parser rejects it); a constraint's index is dropped with `ALTER TABLE ... DROP CONSTRAINT`; replacements are built with `schema.index_sql` so UNIQUE, INCLUDE, the predicate and SPLIT survive. A finding's DDL is built from `changes.py` constructors, never assembled as text or read back from text, and the review document never prints it. A template that formats `CREATE INDEX` by hand is a defect, and so is one that prints a bare name or the `text_of` form of an expression (quoted mixed-case names lose their quotes; the `Metamorphic` variant tests catch it).
+- **Reasons, not instructions.** A finding's text explains why something matters; what could be done lives in the rule's options, each checked by the engine where it can be modelled. A text that tells the reader to drop, rebuild, replace or re-key something, or that carries a statement, is a defect (the `prescriptions` test scans whole reviews), and no option ever drops a primary key or a unique index.
+- **Statistics are read for what they show on YSQL.** Correlation reflects primary-key order, not insert order; aggregated per-node pg_stats can repeat a column. A rule that treats them otherwise is a defect.
+- **Pitfalls stay generic, actionable and true.** An entry in `references/pitfalls.md` says what the reviewer sees, why, and what to do, and names no customer, table or value. Its `Engine:` line states what the engine does today: `handled` and `flagged` name the test that pins it, and a gap the engine does not see yet may ship as `not detected` until it is fixed. No entry, and no other doc, claims behaviour the engine lacks.
+- **The chat message comes from the engine.** `chat.md` is rendered from `review.json`; skill text that asks the model to summarise findings in its own words reintroduces the errors this removed.
+- **The `AGENTS.md` rules for this skill:** no version-specific caches or generated bulk data committed, no release facts in the rules, no customer data, tests pass without the caches (`python3 -m unittest discover -s skills/yb-model/scripts -p 'test_*.py'`).
 
 ## Conventions for skill content
 

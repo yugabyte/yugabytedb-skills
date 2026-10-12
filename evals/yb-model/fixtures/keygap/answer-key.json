@@ -1,0 +1,43 @@
+{
+ "fixture": "keygap",
+ "about": "Planted in setup.sql / gen_workload.py. Row counts in bundle/ybm_reltuples.csv are measured counts x100 (build.sh SCALE). 'engine_match' is what yb-model.py must emit; 'engine_absent' is what it must not emit (a finding, review text, or point_query_contains: a pattern the engine must not model as a point lookup); 'judge' is what a grader looks for in a free-text review. 'traps' are things a review should NOT claim.",
+ "defects": [
+  {
+   "id": "G1",
+   "severity": "medium",
+   "pattern": "SELECT metric, label, value FROM counters WHERE tenant_id = .. AND device_id = .. AND grp = .. AND bucket = ..",
+   "judge": "The read binds bucket after metric and label, which it leaves unbound: DocDB seeks under every (metric, label) of the device and group. A key with bucket before metric (as counters_by_bucket has) reads one contiguous range. Re-keying is the user's decision; the other order costs reads that bind metric across buckets.",
+   "engine_match": [
+    {
+     "rule": "CAP014",
+     "object_contains": "counters_pkey on counters"
+    }
+   ]
+  }
+ ],
+ "traps": [
+  {
+   "id": "T1",
+   "judge": "Do not call the named-metric read (an OR of conjunctions) a point lookup or list it as already sound: it returns one row per arm.",
+   "engine_absent": [
+    {
+     "point_query_contains": "metric = $5 AND label = $6 OR"
+    }
+   ]
+  },
+  {
+   "id": "T2",
+   "judge": "The bucket-first table serves the same read without a gap; no key-gap finding on it.",
+   "engine_absent": [
+    {
+     "rule": "CAP014",
+     "object_contains": "counters_by_bucket"
+    }
+   ]
+  },
+  {
+   "id": "T3",
+   "judge": "Do not claim the gap read scans every row of the device: DocDB skip-scans, so rows scanned stay close to rows returned; the cost is seeks."
+  }
+ ]
+}

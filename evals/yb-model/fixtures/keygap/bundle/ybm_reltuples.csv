@@ -1,0 +1,5 @@
+schemaname,relname,relkind,reltuples
+public,counters,r,10560000
+public,counters_by_bucket,r,10560000
+public,counters_by_bucket_pkey,i,10560000
+public,counters_pkey,i,10560000
