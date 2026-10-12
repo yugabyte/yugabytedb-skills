@@ -34,15 +34,8 @@ npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain
 # YugabyteDB Aeon (managed cloud) REST API
 npx skills add yugabyte/yugabytedb-skills -s aeon-api
 
-# Universe metrics analysis (Prometheus/PromQL, hotspots, CPU, memory, I/O)
-npx skills add yugabyte/yugabytedb-skills -s yb-metrics-analysis
-
-# Broad, whole-universe performance assessment (triage + orchestration)
-# — install with yb-query-analysis, yb-metrics-analysis and yba-api, which it runs
-npx skills add yugabyte/yugabytedb-skills -s yb-performance-assessment
-
-# YSQL query performance, session activity, and lock contention analysis
-npx skills add yugabyte/yugabytedb-skills -s yb-query-analysis
+# Performance must-checks: slow app or database, slow queries, EXPLAIN plans, locks, ASH, Prometheus / YBA metrics
+npx skills add yugabyte/yugabytedb-skills -s yb-perf
 
 # YSQL schema review: sharding, indexes, partitions, statistics, workload (deterministic engine)
 npx skills add yugabyte/yugabytedb-skills -s yb-model
@@ -59,9 +52,7 @@ npx skills add yugabyte/yugabytedb-skills -s yb-model
 |`yba-terraform`|YugabyteDB Anywhere Terraform provider (`yugabyte/yba`) — installing YBA on a VM, registering the first customer, and creating cloud (AWS/GCP/Azure) or on-prem providers, storage configs, universes, backups, schedules and restores, plus the upstream cloud IAM and network discovery those manifests need|
 |`yb-rag-langchain`|RAG, semantic search, and hybrid (vector + full-text) search on YugabyteDB with LangChain — covers `PGVectorStore` setup, `ybhnsw` / GIN index creation, hybrid search configuration, metadata filtering, and combining relational predicates with vector queries|
 |`aeon-api`|YugabyteDB Aeon (managed cloud) REST API — scripting and automating cluster lifecycle, database users, network allowlists, backups, VPC peering/private endpoints, and cluster metrics|
-|`yb-metrics-analysis`|YugabyteDB universe metrics analysis — Prometheus/PromQL-based triage and playbooks for hotspots, CPU, memory, I/O, latency/throughput, connection skew, and tablet limits|
-|`yb-performance-assessment`|Broad, whole-universe YugabyteDB performance assessment — triage-and-orchestration entry point that runs cross-cutting SQL and infrastructure checks, then dispatches to the specialist skills|
-|`yb-query-analysis`|YSQL query performance, session activity, and lock contention analysis — including proactive database health assessment and pg_stat_statements/ASH-driven diagnosis|
+|`yb-perf`|Performance must-checks — the YugabyteDB-specific traps behind a slow app or database, raised latency or a regressed p99, across the SQL layer (slow queries, EXPLAIN (ANALYZE, DIST) plans, pg_stat_statements, lock contention, ASH waits) and the metrics layer (node hotspots, leader and tablet skew, CPU / disk / memory, tablet limits, rejections, master load from Prometheus / YBA), with read-only one-call check scripts and the evidence required before naming a cause|
 |`yb-model`|Offline review of an existing YSQL schema and data model from a captured bundle — sharding, primary keys, indexes, partitions, tablet splits and data quality checked against the schema dump, `pg_stats`, `pg_stat_statements` or a query list and the rest of the evidence by a deterministic rules engine (Python, standard library), with plan replay on the customer's release, a safety pass over its own DDL, and a workload-hygiene section for the application team|
 
 ## Learn More

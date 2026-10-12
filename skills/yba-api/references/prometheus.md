@@ -119,7 +119,7 @@ For YSQL, swap `server_type="yb_cqlserver"` for `server_type="yb_ysqlserver"` an
 
 ### YCQL latency (microseconds), by statement type
 
-A canonical "average over the window" pattern: divide the rate of the histogram's `_sum` by the rate of its `_count`.
+A canonical "average over the window" pattern: divide the rate of `_sum` by the rate of `_count` (both in microseconds).
 
 ```promql
 (
@@ -141,16 +141,16 @@ A canonical "average over the window" pattern: divide the rate of the histogram'
 )
 ```
 
-For p99 instead of average:
+For p99 instead of average: YugabyteDB exports **no `_bucket` histograms**, so `histogram_quantile` returns nothing. Percentiles are a gauge series, `rpc_latency` itself (raw `handler_latency_*`), with a `quantile` label of `p50`, `p95`, `p99`, `mean`, `min` or `max`:
 
 ```promql
-histogram_quantile(0.99,
-  sum(rate(rpc_latency_bucket{
+max(max_over_time(rpc_latency{
     service_type="SQLProcessor", node_prefix="yb-dev-universe-914787231",
-    server_type="yb_cqlserver", service_method=~"Select.*|Insert.*"
-  }[1m])) by (le, service_method)
-)
+    server_type="yb_cqlserver", service_method=~"Select.*|Insert.*", quantile="p99"
+}[1m])) by (service_method)
 ```
+
+YSQL statement series (`server_type="yb_ysqlserver"`) have no quantile series on 2025.2.1 (only `_sum` / `_count`); take YSQL percentiles from `pg_stat_statements` (`yb_get_percentile`) instead.
 
 ### Container CPU (Kubernetes universe), as a percentage of one core
 
@@ -201,8 +201,10 @@ sum(node_filesystem_size{
 ### Tablet leader count per tserver (placement balance)
 
 ```promql
-sum(tablet_leaders{node_prefix="yb-dev-universe-914787231"}) by (exported_instance)
+sum(is_raft_leader{node_prefix="yb-dev-universe-914787231", export_type="tserver_export"}) by (exported_instance)
 ```
+
+`tablet_leaders` is absent on some builds (e.g. 2025.2). In the 2025.2 default export each `is_raft_leader` series is per table (no `tablet_id` label) and its value is the number of that table's tablets this node leads, so `sum` it per node; never count series equal to 1. Scope to tservers: masters export it too.
 
 If counts are very uneven, the universe is leader-imbalanced — relevant when you've just resized or added zones.
 

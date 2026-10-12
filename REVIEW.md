@@ -32,7 +32,7 @@ Rules that regularly get misread:
 - **Version pins.** The rule forbids pinning a *dependency package whose newest release is the one you want*. It does not touch compatibility constraints (`>=`, `~>`, `^`) or **calendar-style** YugabyteDB releases such as `2024.2.1.0-b1`, in payloads or in commands. Two limits worth knowing before reporting one: the exemption is calendar-style only, so a 2.x release like `2.20.7.0-b1` in a pin-shaped position does warn and is meant to be baselined; and the scan deliberately covers fenced code, because that is where `pip install x==1.2.3` lives.
 - **References one level deep** applies to *new* reference sets. The `yba-api`, `yba-terraform` and `yb-k8s-operator` sets already point references at their siblings and are grandfathered; `yba-terraform` does so deliberately as a two-stage workflow. Those pointers are checked by `RF003`, so a broken one is a build failure, not a review finding. Links between different skills' reference sets do not exist here — do not report them as the grandfathered case.
 
-Known exceptions live in `.skills-lint.json`, each with a stated reason, and are printed as `IGNORED` rather than hidden. `skills/explain_plan_analyzer/` is deliberately unregistered pending a register-vs-remove decision.
+Known exceptions live in `.skills-lint.json`, each with a stated reason, and are printed as `IGNORED` rather than hidden.
 
 ## What is worth flagging
 

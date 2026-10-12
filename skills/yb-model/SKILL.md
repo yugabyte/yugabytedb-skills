@@ -1,6 +1,6 @@
 ---
 name: yb-model
-description: "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, or pg_stat_statements output without a schema (yb-query-analysis); node metrics such as CPU, memory or I/O (yb-metrics-analysis); an open-ended universe health check (yb-performance-assessment); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql)."
+description: "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, pg_stat_statements output without a schema, node metrics such as CPU, memory or I/O, or an open-ended universe health check (yb-perf); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql)."
 ---
 
 # YugabyteDB schema review
@@ -374,18 +374,18 @@ same repository; point to one only if it is installed.
 | The user has, and asks | Skill |
 |---|---|
 | A schema dump, with or without statistics and workload: does the model hold up? | this one |
-| A slow query, a plan, or `pg_stat_statements` output without a schema | `yb-query-analysis` |
-| Metrics: a hot node or tablet, CPU, I/O, tablet limits | `yb-metrics-analysis` |
-| "Is the universe healthy?", no single symptom | `yb-performance-assessment` |
+| A slow query, a plan, or `pg_stat_statements` output without a schema | `yb-perf` |
+| Metrics: a hot node or tablet, CPU, I/O, tablet limits | `yb-perf` |
+| "Is the universe healthy?", no single symptom | `yb-perf` |
 | A new schema, application code or a migration to write | `ysql` |
 
 Hand-offs from a review:
 
 - **Workload hygiene** findings describe how the application uses the database. Following
-  them up on the running system belongs to `yb-query-analysis`.
+  them up on the running system belongs to `yb-perf`.
 - **Writing the migration** for a recommended change (backfill, dual writes, cut-over)
   belongs to `ysql`.
-- **Reading a replayed plan** node by node belongs to `explain-plan-analyzer`.
+- **Reading a replayed plan** for performance belongs to `yb-perf`.
 
 When another skill calls this one as part of a broader assessment, hand back `review.md` as
 its own section: its findings are not merged into, re-ranked or re-graded in the caller's

@@ -1,6 +1,6 @@
 ---
 name: aeon-api
-description: Use when scripting, automating, or querying YugabyteDB Aeon (YugabyteDB Managed cloud) via its REST API — including listing and scaling clusters, managing database users, configuring network allowlists, reading cluster metrics, managing backups, and working with VPC peering or private endpoints. Triggers on YugabyteDB Aeon API, YugabyteDB Managed API, cloud.yugabyte.com/api, Aeon REST, automate Aeon, scale Aeon cluster programmatically, Aeon metrics via API, Aeon backup via API, Aeon allowlist API. Does NOT cover the YBA (YugabyteDB Anywhere) self-managed API — use `yba-api` for that. Does NOT cover SQL-layer performance analysis — use `yb-query-analysis` for that.
+description: Use when scripting, automating, or querying YugabyteDB Aeon (YugabyteDB Managed cloud) via its REST API — including listing and scaling clusters, managing database users, configuring network allowlists, reading cluster metrics, managing backups, and working with VPC peering or private endpoints. Triggers on YugabyteDB Aeon API, YugabyteDB Managed API, cloud.yugabyte.com/api, Aeon REST, automate Aeon, scale Aeon cluster programmatically, Aeon metrics via API, Aeon backup via API, Aeon allowlist API. Does NOT cover the YBA (YugabyteDB Anywhere) self-managed API — use `yba-api` for that. Does NOT cover performance diagnosis (SQL or metrics layer) — use `yb-perf` for that.
 ---
 
 # YugabyteDB Aeon REST API
@@ -57,6 +57,6 @@ Discover your IDs in [`references/auth-and-discovery.md`](references/auth-and-di
 
 **Not covered — alternatives:**
 - Full Prometheus metrics surface → configure metrics export in Aeon console (Settings → Metrics Export to Datadog / Grafana Cloud / Prometheus)
-- SQL-layer query analysis → connect via YSQL and use `yb-query-analysis` skill
+- Performance diagnosis (SQL-layer query analysis, or Prometheus-style metrics) → connect via YSQL and use the `yb-perf` skill
 - Performance Advisor / Insights → Aeon console only (no current API endpoint)
 - GFlag changes → support ticket (not exposed via API)

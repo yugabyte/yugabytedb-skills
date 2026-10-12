@@ -21,7 +21,7 @@ It is **not** about:
 - `references/python-client.md` — minimal Python wrapper (`yba_request`) plus splat-style usage. Read this when writing or generating Python code.
 - `references/powershell-client.md` — standalone PowerShell wrapper (`Invoke-YbaRequest`, `Get-YbaApiToken`, `Register-YbaInstance`, `Get-YbaCustomerId`) that does **not** require the `powershell-yba` module. Read this when the user is on PowerShell or has no Python available.
 - `references/recipes.md` — concrete request/response shapes for register/login, providers, releases, **v1 and v2 universe creation (cloud and Kubernetes)**, **storage configs (incl. multi-region S3 with HTTPS proxy)**, **telemetry providers**, **universe health checks and alerts**, **runtime configuration at all scopes**, backups/restore, and async tasks. Read this when crafting an unfamiliar request.
-- `references/prometheus.md` — querying the Prometheus instance bundled with YBA on port 9090 for universe metrics (YCQL/YSQL ops/sec, latency histograms, container CPU/memory on Kubernetes, node-exporter CPU on cloud, tablet-leader balance, xCluster lag). Includes Python and PowerShell helpers and the `node_prefix` / pod-regex derivation from a universe API response. Read this when the user wants metrics, dashboards or charts.
+- `references/prometheus.md` — querying the Prometheus instance bundled with YBA on port 9090 for universe metrics (YCQL/YSQL ops/sec, latency and percentiles, container CPU/memory on Kubernetes, node-exporter CPU on cloud, tablet-leader balance, xCluster lag). Includes Python and PowerShell helpers and the `node_prefix` / pod-regex derivation from a universe API response. Read this when the user wants metrics, dashboards or charts.
 
 ## v1 vs v2
 

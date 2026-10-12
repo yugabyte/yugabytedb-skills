@@ -65,7 +65,7 @@
     },
     {
       "name": "aeon-api",
-      "description": "Use when scripting, automating, or querying YugabyteDB Aeon (YugabyteDB Managed cloud) via its REST API — including listing and scaling clusters, managing database users, configuring network allowlists, reading cluster metrics, managing backups, and working with VPC peering or private endpoints. Triggers on YugabyteDB Aeon API, YugabyteDB Managed API, cloud.yugabyte.com/api, Aeon REST, automate Aeon, scale Aeon cluster programmatically, Aeon metrics via API, Aeon backup via API, Aeon allowlist API. Does NOT cover the YBA (YugabyteDB Anywhere) self-managed API — use `yba-api` for that. Does NOT cover SQL-layer performance analysis — use `yb-query-analysis` for that.",
+      "description": "Use when scripting, automating, or querying YugabyteDB Aeon (YugabyteDB Managed cloud) via its REST API — including listing and scaling clusters, managing database users, configuring network allowlists, reading cluster metrics, managing backups, and working with VPC peering or private endpoints. Triggers on YugabyteDB Aeon API, YugabyteDB Managed API, cloud.yugabyte.com/api, Aeon REST, automate Aeon, scale Aeon cluster programmatically, Aeon metrics via API, Aeon backup via API, Aeon allowlist API. Does NOT cover the YBA (YugabyteDB Anywhere) self-managed API — use `yba-api` for that. Does NOT cover performance diagnosis (SQL or metrics layer) — use `yb-perf` for that.",
       "source": "./",
       "strict": false,
       "skills": [
@@ -73,35 +73,17 @@
       ]
     },
     {
-      "name": "yb-metrics-analysis",
-      "description": "Retrieve and analyse YugabyteDB universe metrics to identify and explain operational issues — a quick health-check gate, a guided workload sweep (read/write mix, active-connections-per-core sizing, hot-table review), and playbooks for hotspots, high CPU, high memory, I/O saturation, latency/throughput regressions, connection skew, master/catalog RPC pressure, and tablet limits. Use when a user asks why a universe is slow, unbalanced, or unhealthy (or simply \"is it OK?\"); wants a workload/universe metrics review or to inspect tserver/master/node metrics; mentions Prometheus, PromQL, the YBA metrics dashboard, node hotspots, uneven connections, connection churn or pool sizing, catalog cache misses, OOMs, memory pressure rejections, CPU saturation, compaction/SST pressure, or too many tablets. Covers picking a metrics source (YugabyteDB Anywhere → Prometheus/PromQL → direct node scrape), finding metrics, and per-issue playbooks. Not for YugabyteDB Aeon (limited metrics API) — prefer Performance Advisor there.",
+      "name": "yb-perf",
+      "description": "Checks the YugabyteDB-specific performance traps that general database and monitoring knowledge misses, and the evidence required before concluding. Use when an app, site or database on YugabyteDB is slow, latency is up, p99 regressed, someone asks \"is the database the cause?\", or a universe needs a health check or performance review - and for the specifics - a slow query, an EXPLAIN (ANALYZE, DIST) plan, pg_stat_statements, lock contention or retries, ASH wait events, a node hotspot, leader or tablet skew, CPU, disk or memory pressure, tablet limits, Prometheus / YBA metrics. Covers both the SQL layer and the metrics layer, with read-only one-call check scripts, and works with whatever access exists - live SQL, Prometheus / YBA metrics, or pasted output - before naming a root cause or ruling the database out.",
       "source": "./",
       "strict": false,
       "skills": [
-        "./skills/yb-metrics-analysis"
-      ]
-    },
-    {
-      "name": "yb-performance-assessment",
-      "description": "Start here for a broad, whole-universe YugabyteDB performance assessment — when the request is open-ended (\"assess this universe for any performance issues\", \"is this cluster healthy?\", \"find any performance problems\", \"do a performance review\", \"where do I start\", \"something feels slow but I don't know what\"). This is the triage-and-orchestration entry point: it detects the deployment/access, runs a fast cross-cutting triage across BOTH layers, then dispatches to the SQL-layer skill (yb-query-analysis) and the infrastructure/metrics skill (yb-metrics-analysis) and synthesises one ranked report. Use this instead of going straight to a single layer when the scope is the whole database/universe rather than one known symptom. For a specific known symptom (a named slow query, a specific hot node) you may go directly to the matching specialist skill.",
-      "source": "./",
-      "strict": false,
-      "skills": [
-        "./skills/yb-performance-assessment"
-      ]
-    },
-    {
-      "name": "yb-query-analysis",
-      "description": "Analyse YSQL query performance, session activity, and lock contention in YugabyteDB — and assess database health proactively (pre-production, periodic, pre-migration). Triggers on slow query, high latency, query regression, pg_stat_statements output, ASH / active session history, wait events, lock contention, idle in transaction, conflict retries, \"why is this query slow\", \"assess my database\", \"health check\", \"pre-go-live\", \"is my database healthy\", connection exhaustion, out of connections, OOM kill. **This skill owns query performance analysis even when the user has already pasted an EXPLAIN plan** — \"here is my slow query and its plan, what should I change\" belongs here, not in `explain-plan-analyzer`, which is for plan comprehension only (what a node or DIST counter means) and is used from here as a plan-reading aid. For infrastructure/Prometheus metrics (node CPU, disk, tablet hotspots) use `yb-metrics-analysis`. For YCQL use `ycql`. For schema design or Postgres migration DDL use `ysql`.",
-      "source": "./",
-      "strict": false,
-      "skills": [
-        "./skills/yb-query-analysis"
+        "./skills/yb-perf"
       ]
     },
     {
       "name": "yb-model",
-      "description": "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, or pg_stat_statements output without a schema (yb-query-analysis); node metrics such as CPU, memory or I/O (yb-metrics-analysis); an open-ended universe health check (yb-performance-assessment); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql).",
+      "description": "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, pg_stat_statements output without a schema, node metrics such as CPU, memory or I/O, or an open-ended universe health check (yb-perf); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql).",
       "source": "./",
       "strict": false,
       "skills": [
