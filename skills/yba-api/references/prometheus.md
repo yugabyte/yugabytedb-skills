@@ -119,7 +119,7 @@ For YSQL, swap `server_type="yb_cqlserver"` for `server_type="yb_ysqlserver"` an
 
 ### YCQL latency (microseconds), by statement type
 
-A canonical "average over the window" pattern: divide the rate of `_sum` by the rate of `_count` (both in microseconds).
+A canonical "average over the window" pattern: divide the rate of `_sum` (microseconds) by the rate of `_count` (operations); the result is a mean in microseconds.
 
 ```promql
 (

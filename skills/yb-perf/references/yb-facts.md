@@ -12,7 +12,7 @@ often get wrong. "(live)" = re-checked on a 2025.2.1 RF3 cluster; "(docs)" = Yug
 - `docdb_rows_scanned` counts rows read in DocDB storage.
 - `conflict_retries`, `read_restart_retries`, `total_retries` (all retries): per-statement counts. Under Read Committed a lock wait shows up as a retry, not as exec time.
 - `yb_enable_pg_stat_statements_rpc_stats` gates `docdb_rows_scanned` / `_returned`, `docdb_read_rpcs` / `_write_rpcs`, `docdb_read_operations` / `_write_operations`, `docdb_wait_time` (DocDB waits) and `catalog_wait_time` (catalog reads); off by default on 2025.2.1 (live).
-- It is a runtime GUC, not a GFlag: `ALTER DATABASE|ROLE ... SET`, no restart, self-service on Aeon.
+- It is a runtime GUC, not a GFlag: `ALTER DATABASE|ROLE ... SET`, no restart, self-service on Aeon. It reaches only **new** sessions on that database / role: a long-lived pool keeps the old value until its connections reconnect, so recycle the pool and let the workload run before reading pgss -- columns still empty after the change are not data.
 - `yb_enable_pg_stat_statements_docdb_metrics` gates `docdb_seeks` / `_nexts` / `_prevs`, `docdb_read_time` / `_write_time`, `docdb_obsolete_rows_scanned`; neither the GUC nor the columns exist on 2025.2.1 (live).
 - Both GUCs default on from v2025.2.5.0 / v2026.1.1.0.
 - Your own diagnostic statements land in pgss too; exclude them before ranking.
@@ -30,7 +30,7 @@ often get wrong. "(live)" = re-checked on a 2025.2.1 RF3 cluster; "(docs)" = Yug
 - 2025.2 also needs tserver flag `ysql_enable_auto_analyze_infra` = true (live default).
 - Trigger: mutations > threshold + `ysql_auto_analyze_scale_factor` (0.1) x `reltuples`; per-table cooldown 10 s minimum, 24 h maximum (live).
 - `yb_stat_auto_analyze()` (cluster-aware) is 2025.2.3+; absent on 2025.2.1 (live).
-- `pg_relation_size()` returns 0 for YugabyteDB relations; use `pg_table_size()` or `pg_total_relation_size()` (live).
+- `pg_relation_size()` returns 0 for YugabyteDB tables and indexes; use `pg_table_size()` or `pg_total_relation_size()` (live).
 - `ysql_sequence_cache_minval` (GFlag, default 100, live) floors sequence caching: `CACHE 1` still caches 100 values unless the flag is 0.
 
 ## Locks, retries and terminations

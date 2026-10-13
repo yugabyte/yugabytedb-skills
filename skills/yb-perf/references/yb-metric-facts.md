@@ -1,8 +1,7 @@
 # YugabyteDB metric behaviour and sources
 
 What metrics mean and where to read them, limited to facts current models often get wrong.
-"(live)" = checked on a 2025.2.1 RF3 cluster; "(docs)" = YugabyteDB docs. Names and labels:
-[metric-names.md](metric-names.md).
+"(live)" = checked on a 2025.2.1 RF3 cluster; "(docs)" = YugabyteDB docs.
 
 ## Reading the series
 
@@ -21,7 +20,7 @@ What metrics mean and where to read them, limited to facts current models often 
 
 ## Sources
 
-- YBA bundles Prometheus on `:9090`; on Kubernetes it runs as a container in the YBA (`yugaware`) pod. Connection, discovery and auth: [yba-api prometheus.md](../../yba-api/references/prometheus.md).
+- YBA bundles Prometheus on `:9090`; on Kubernetes it runs as a container in the YBA (`yugaware`) pod. Scope a universe with `node_prefix` = `universeDetails.nodePrefix` from `GET /api/v1/customers/{cUUID}/universes/{uUUID}`; if the `yba-api` skill is installed, its Prometheus reference covers connection and auth.
 - YBA REST proxy for dashboard metrics: `POST /api/v1/customers/{customerUUID}/metrics`.
 - A node's `/prometheus-metrics` accepts `priority_regex=<regex>` (used by YBA; narrows the payload server-side but is not an exact name filter -- server-level metrics still come back, live) and `show_help=false`; raw names only, no relabelling.
 - Aeon's public REST API has only a small curated cluster-metrics set (ops/s, average latency, CPU, disk); full metrics need Aeon metrics export.

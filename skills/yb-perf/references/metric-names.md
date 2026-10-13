@@ -26,7 +26,7 @@ convention not present on that stack. Discover anything else with
 - `namespace_name` `system` and `system_postgres` = internal tables (live).
 - `ql_read_latency` / `ql_write_latency` (`_sum`, `_count`): per table per tserver (live).
 - `rocksdb_number_db_seek`, `_next`, `_prev`: per table (live).
-- `is_raft_leader`: per table in the 2025.2 default export (no `tablet_id`); see yb-metric-facts.md. Masters export it too (live).
+- `is_raft_leader`: per table in the 2025.2 default export (no `tablet_id`): its value is that table's leader count on the node, so sum it by node. Masters export it too (live).
 - `transaction_conflicts`: per table, tserver and master (live).
 
 ## Tablets, splitting and limits

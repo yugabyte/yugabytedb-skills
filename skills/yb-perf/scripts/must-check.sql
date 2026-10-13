@@ -15,7 +15,8 @@ SET yb_locks_min_txn_age = 0;   -- show ALL lock holders/waiters, not only trans
 SELECT version();
 SELECT current_setting('yb_enable_pg_stat_statements_rpc_stats', true)     AS rpc_stats,
        current_setting('yb_enable_pg_stat_statements_docdb_metrics', true) AS docdb_metrics;
-\echo '   rpc_stats off => docdb_*_rpcs columns are empty for workload sessions (a SET here does not fix that).'
+\echo '   rpc_stats off in the workload sessions => docdb_*_rpcs AND docdb_rows_scanned/returned stay empty, so S5 cannot run'
+\echo '   (a SET here does not fix that; ALTER DATABASE|ROLE ... SET reaches only new sessions -- pooled connections must reconnect).'
 SELECT stats_reset AS pgss_last_reset, now() - stats_reset AS window_covered FROM pg_stat_statements_info;
 
 \echo '== S1. Retries per call (contention, or lock waits under Read Committed). Fast mean + retries = waiting =='
@@ -96,6 +97,9 @@ SELECT count(*) FILTER (WHERE now() - backend_start < interval '5 s') AS backend
 FROM pg_stat_activity WHERE backend_type = 'client backend';
 
 \echo '== S5. Scan amplification (rows scanned in storage per row returned) =='
+SELECT CASE WHEN coalesce(current_setting('yb_enable_pg_stat_statements_rpc_stats', true), 'on') <> 'on'
+            THEN 'S5 NOT MEASURABLE: rpc_stats is off here, so docdb_rows_scanned is likely empty -- an empty result below is a gap, not a pass'
+            ELSE 'S5 measurable if rpc_stats was also on in the workload sessions' END AS s5_status;
 \echo '   shape = AGG (count/sum/avg/min/max/GROUP BY): rows is ~1 per call, so scanned_per_row is meaningless --'
 \echo '   compare scanned_per_call with the table row count; a full count(*) scanning every row is not a finding.'
 SELECT left(query, 80) AS query, calls, rows, docdb_rows_scanned,
@@ -121,10 +125,12 @@ ORDER BY yb_get_percentile(yb_latency_histogram, 99) DESC NULLS LAST LIMIT 10;
 \echo '== S8. Cluster membership (compare with the expected node count) =='
 SELECT count(*) AS nodes_serving, string_agg(host, ', ' ORDER BY host) AS hosts FROM yb_servers();
 
-\echo '== S9. Tables never analysed (pg_class.reltuples = -1, cluster-wide). n_live_tup / last_*analyze are per node, and Auto Analyze writes last_analyze, not last_autoanalyze =='
+\echo '== S9. Tables never analysed (cluster-wide pg_class.reltuples: -1 on PG15-based 2025.1+; 0 on PG11-based 2024.x, where 0 can also be an empty table).'
+\echo '   n_live_tup / last_*analyze are per node, and Auto Analyze writes last_analyze, not last_autoanalyze =='
 SELECT n.nspname AS schema, c.relname, c.reltuples::bigint AS est_rows
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relkind IN ('r', 'p') AND c.reltuples = -1
+WHERE c.relkind IN ('r', 'p')
+  AND (c.reltuples = -1 OR (c.reltuples = 0 AND current_setting('server_version_num')::int < 150000))
   AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%'
 ORDER BY 1, 2 LIMIT 20;
 

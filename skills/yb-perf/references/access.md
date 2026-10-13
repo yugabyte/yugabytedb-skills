@@ -7,11 +7,12 @@ Tserver pods are `<node>-yb-tserver-<N>` (label `app.kubernetes.io/name=yb-tserv
 reaches the local node without `-h`. Add `--context <ctx>` if the universe is not in the current context.
 
 ```bash
+# run from the yb-perf skill directory (scripts/ is relative to it)
 kubectl --context <ctx> get pods -A | grep yb-tserver          # find namespace and pods
 kubectl --context <ctx> exec -i -n <ns> <node>-yb-tserver-0 -c yb-tserver -- \
-  ysqlsh -U <user> -d <db> -f - < skills/yb-perf/scripts/must-check.sql
+  ysqlsh -U <user> -d <db> -f - < scripts/must-check.sql
 kubectl --context <ctx> port-forward -n <ns> <node>-yb-tserver-0 5433:5433   # or use local tools
-skills/yb-perf/scripts/all-nodes.sh --kube <ns> --context <ctx> -f skills/yb-perf/scripts/must-check.sql  # every pod
+scripts/all-nodes.sh --kube <ns> --context <ctx> -f scripts/must-check.sql  # every pod
 ```
 
 Each pod is one node: per-node views (pgss, `pg_stat_activity`, `pg_locks`, ASH) show only its share.
@@ -24,7 +25,7 @@ GFlags are not self-service on Aeon: they need a support ticket (usually a resta
 |---|---|---|
 | `pg_stat_statements`, `pg_stat_activity`, `pg_locks` (other sessions need `pg_monitor`) | Enable ASH if the relation is missing: `ysql_yb_enable_ash` | TServer / master log files (ask support for extracts) |
 | `EXPLAIN (ANALYZE, DIST)`, manual `ANALYZE` | `yb_query_diagnostics`: `ysql_yb_enable_query_diagnostics` (2025.2+) | Full Prometheus surface: the public API's cluster-metrics endpoint is a small curated set; configure metrics export instead |
-| GUCs incl. `yb_enable_pg_stat_statements_rpc_stats` via `ALTER DATABASE ... SET` | Query Plan Management: `yb_pg_stat_plans_track` (later than 2025.2.1; check `SHOW`) | |
+| GUCs incl. `yb_enable_pg_stat_statements_rpc_stats` via `ALTER DATABASE ... SET` (new sessions only: pooled connections must reconnect) | Query Plan Management: `yb_pg_stat_plans_track` (later than 2025.2.1; check `SHOW`) | |
 | ASH, if `SELECT count(*) FROM yb_active_session_history` works | Slow-statement logging, `auto_explain` (logs are not user-visible) | |
 | Console: Slow Queries, Insights (Performance Advisor: cluster > Performance > Insights, unverified), Metrics, Connection Pooling (default 10 client connections per server connection, docs) | Connection limits, ASH sampling interval, any other GFlag | |
 

@@ -30,7 +30,7 @@ while (($#)); do
     --kube) mode="kube"; kube_ns="$2"; shift 2 ;;
     --context) kube_ctx="$2"; shift 2 ;;
     --) shift; break ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
   esac
 done

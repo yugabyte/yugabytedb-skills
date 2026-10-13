@@ -66,11 +66,11 @@ wrong conclusions. It covers two layers: SQL / session (S rows) and metrics (M r
 | S2 | Transaction age ≫ current statement time; `idle in transaction` | `pg_stat_activity` | Something holds locks across other work. Look at what the same transaction does after its first write. |
 | S3 | `pg_locks` shows nothing | `pg_locks` | **Not proof of no blocking.** It hides transactions younger than `yb_locks_min_txn_age` (default 1 s). `SET yb_locks_min_txn_age = 0` in your session (changes no data), and sample more than once. |
 | S4 | Same statement text in two pgss rows; or `mean_plan_time` ≫ `mean_exec_time` on a point query | pgss | **Per-connection catalog warm-up**: the app opens a connection per request. Confirm with one fresh-session timing. Fix: connection pooling, not the query. |
-| S5 | `docdb_rows_scanned` / `rows` ≫ 1; or `Storage Rows Scanned` = 2× rows returned | pgss / `EXPLAIN (ANALYZE, DIST)` | Scan amplification (missing index or blocked pushdown), or a non-covering index (index + table read). For an aggregate (`count(*)`, `GROUP BY`) compare scanned-per-call with the table's row count instead. |
-| S6 | Latency high but scan ratio ≈ 1 on a queue-like or delete-heavy table | pgss + M7 | **Tombstones** from deletes: YugabyteDB counts live rows, so the plan looks clean. |
+| S5 | `docdb_rows_scanned` / `rows` ≫ 1; or `Storage Rows Scanned` = 2× rows returned | pgss / `EXPLAIN (ANALYZE, DIST)` | Scan amplification (missing index or blocked pushdown), or a non-covering index (index + table read). For an aggregate (`count(*)`, `GROUP BY`) compare scanned-per-call with the table's row count instead. **`docdb_rows_*` are filled only while `yb_enable_pg_stat_statements_rpc_stats` was on in the workload's sessions (off by default on 2025.2): if it was off, S5 is a gap, not a pass** -- use `EXPLAIN (ANALYZE, DIST)` on a read. |
+| S6 | Latency high but scan ratio ≈ 1 (measured -- see S5) on a queue-like or delete-heavy table | pgss + M7 | **Tombstones** from deletes: YugabyteDB counts live rows, so the plan looks clean. |
 | S7 | `PRIMARY KEY (ts ASC ...)` or another range key on a monotonic value | schema | All inserts hit the last range tablet. More tablets won't fix it; a hash-prefixed key will. |
 | S8 | `yb_servers()` count, `follower_lag_ms`, uniform latency rise across unrelated statements | SQL / M1, M6 | Node or infrastructure event, not a query defect. Don't invent a SQL cause; find the node in the M rows. |
-| S9 | `pg_class.reltuples = -1` | catalog | Never analysed: the planner is guessing. Cluster-wide; `pg_stat_user_tables` timestamps are per node. |
+| S9 | `pg_class.reltuples = -1` (PG15-based 2025.1+); `reltuples = 0` on PG11-based 2024.x and earlier, where 0 can also be an empty table | catalog | Never analysed: the planner is guessing. Cluster-wide; `pg_stat_user_tables` timestamps are per node. |
 
 ## Must-checks: metrics (per node)
 
@@ -98,14 +98,14 @@ wrong conclusions. It covers two layers: SQL / session (S rows) and metrics (M r
 ## Scripts and references
 
 - `scripts/must-check.sql` -- run first for SQL: S1-S5, S8, S9 plus context (version, pgss window), p99/p50, unindexed foreign keys and abnormal terminations.
-- `scripts/metrics-check.sh` -- run first for metrics: M1-M11 in one Prometheus pass (read-only HTTP GETs), YBA or self-managed selectors.
+- `scripts/metrics-check.sh` -- run first for metrics: M1-M10 in one Prometheus pass (read-only HTTP GETs; Read and Write mean and p99), YBA or self-managed selectors. M11 (app metrics) is a reminder only: check it yourself.
 - `scripts/ash.sql` -- when time goes to waits: ASH wait breakdown, top `query_id`, hot tablets, zone split (`-v window='30 minutes'`).
 - `scripts/all-nodes.sh` -- pgss, `pg_stat_activity`, `pg_locks` and ASH are per node: run either SQL file on every node (`--help` for host mapping, `--exec`, `--kube`).
 - [references/yb-facts.md](references/yb-facts.md) -- read before relying on a column, GUC, default, version gate or wait-event name: pgss, stats, locks, EXPLAIN, hints, query diagnostics, ASH.
 - [references/access.md](references/access.md) -- read when there is no direct `ysqlsh`: YBA Kubernetes, Aeon, paste mode, CSV exports.
 - [references/metric-names.md](references/metric-names.md) -- read before writing PromQL beyond the script: exact metric and label names, YBA vs self-managed labels.
 - [references/yb-metric-facts.md](references/yb-metric-facts.md) -- read when interpreting a metric value: leader counts, percentiles, tablet limits and splitting, metric sources (YBA, node endpoint, Aeon).
-- Connecting to YBA's Prometheus and finding `node_prefix`: [yba-api prometheus.md](../yba-api/references/prometheus.md).
+- YBA's Prometheus listens on port 9090 of the YBA host; `node_prefix` is the universe's `universeDetails.nodePrefix` (YBA API `GET /api/v1/customers/{cUUID}/universes/{uUUID}`). For more, if the `yba-api` skill is installed, see its Prometheus reference.
 
 ## Report
 

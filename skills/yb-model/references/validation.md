@@ -50,12 +50,12 @@ FROM pg_stat_user_indexes WHERE schemaname='public' ORDER BY idx_scan ASC;
 -- this list: once the user chooses a finding's drop option, `yb-model.py sketch <bundle>
 -- <finding> --option drop` prints it, after the engine's checks.
 SELECT relname AS table_name, indexrelname AS index_name,
-       pg_size_pretty(pg_relation_size(i.indexrelid)) AS index_size,
+       pg_size_pretty(pg_table_size(i.indexrelid)) AS index_size,
        (SELECT h.inhparent::regclass FROM pg_inherits h
          WHERE h.inhrelid = i.indexrelid) AS copy_of
 FROM pg_stat_user_indexes s JOIN pg_index i ON s.indexrelid = i.indexrelid
 WHERE idx_scan = 0 AND NOT i.indisprimary AND NOT i.indisunique
-ORDER BY pg_relation_size(i.indexrelid) DESC;
+ORDER BY pg_table_size(i.indexrelid) DESC;
 
 -- A6. Tablet counts per relation, cluster-wide from the master catalog. Trust this, not the
 -- DDL file. (yb_local_tablets lists only the tablets with a peer on the node you are on.)

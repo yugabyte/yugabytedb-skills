@@ -11,9 +11,11 @@ read-only script per layer that runs all of that layer's checks in one call.
 | Infrastructure / metrics | [`yb-perf`](../skills/yb-perf/SKILL.md) M1-M11 | Universe health, node hotspots, leader or tablet skew, latency or throughput read from Prometheus / YBA metrics. |
 
 For any slowness question the skill scopes the complaint first (one path slow, or many
-unrelated paths at once), then runs both checks, whichever it can reach: a slow database with a
-clean SQL layer is often an infrastructure hotspot, and a saturated node is often driven by one
-bad query. Each layer is blind to causes the other sees.
+unrelated paths at once), and the scope sets the order of the two one-call checks. For one slow
+path it runs the SQL check first and the metrics check only if the path's statements don't
+explain it, treating a node finding as secondary unless other paths are slow too. For many slow
+paths, or with metrics only, it runs the metrics check first, then the SQL check to rule out a
+query driving the node. Each layer is blind to causes the other sees.
 
 ## Why short
 
