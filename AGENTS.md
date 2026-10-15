@@ -47,34 +47,18 @@ skills/
     references/
       auth-and-discovery.md   # API key, discovering accountId/projectId/clusterId, curl/Python/PowerShell patterns, pagination
       recipes.md               # Ready-to-use operations: cluster info, scaling, node list, database users, allowlists, backups, metrics
-  yb-metrics-analysis/
-    SKILL.md                  # YugabyteDB universe metrics analysis skill (Prometheus/PromQL triage and playbooks)
+  yb-perf/
+    SKILL.md                  # Performance must-checks, SQL and metrics layers: slow app/queries, EXPLAIN, pgss, locks, ASH, Prometheus / YBA
+    scripts/
+      must-check.sql          # One read-only pass over the SQL must-checks (run first)
+      metrics-check.sh        # One-call read-only metrics check (YBA or self-managed selectors)
+      ash.sql                 # Active Session History wait / query / tablet / zone breakdown
+      all-nodes.sh            # Run a .sql file or statement on every node (per-node views)
     references/
-      data-sources.md          # Picking a metrics source (YBA, standalone Prometheus, direct node scrape, Aeon export sinks)
-      finding-metrics.md        # Locating and querying the right metrics for a given issue
-      workload-sweep.md         # Guided expert workload sweep (read/write mix, connections-per-core sizing, hot-table review)
-      issue-quick-healthcheck.md # Green/triage gate that routes to the per-issue playbooks below
-      issue-cpu.md               # High CPU saturation playbook
-      issue-memory.md            # Memory pressure / OOM playbook
-      issue-disk-io.md           # I/O saturation playbook
-      issue-hotspots.md          # Node/tablet hotspot playbook
-      issue-latency-throughput.md # Latency/throughput regression playbook
-      issue-connection-skew.md   # Uneven connections / pool sizing playbook
-      issue-master-catalog.md    # Master/catalog RPC pressure playbook
-      issue-tablet-limits.md     # Tablet replica limit / too-many-tablets playbook
-  yb-performance-assessment/
-    SKILL.md                  # Whole-universe performance assessment skill (triage-and-orchestration entry point)
-  yb-query-analysis/
-    SKILL.md                  # YSQL query performance, session activity, and lock contention analysis skill
-    references/
-      ash-analysis.md           # Active Session History / wait event analysis
-      contention.md             # Locks, blocking, idle-in-transaction, connection exhaustion, OOM kill
-      pgss-analysis.md          # pg_stat_statements analysis (scan ratio, retries, call-count ranking)
-      query-tuning.md           # Plan hints, plan regressions, Auto Analyze, stale statistics, Batched Nested Loop tuning
-      assessment-checklists.md  # Proactive database health assessment (pre-production, pre-go-live, periodic review)
-      access-yba-k8s.md         # Reaching YSQL on a YBA-managed Kubernetes universe
-      aeon-access.md            # SQL-layer access and analysis on YugabyteDB Aeon
-      triage-snapshot.sql        # Cheap read-only SQL triage snapshot used by yb-performance-assessment
+      yb-facts.md             # YugabyteDB SQL facts models often get wrong (pgss, stats, locks, EXPLAIN, hints, ASH)
+      access.md               # YSQL on YBA Kubernetes / Aeon, paste mode, loading CSV exports
+      metric-names.md         # Exact metric and label names; YBA vs self-managed labels
+      yb-metric-facts.md      # Metric behaviour (leader counts, percentiles, tablet limits) and metric sources
   yb-model/
     SKILL.md                  # YSQL schema / data-model review skill (runbook around a deterministic engine)
     references/               # engine.md (outputs, passes), checks.md, intake.md, validation.md, critic.md
