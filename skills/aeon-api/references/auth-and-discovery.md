@@ -1,126 +1,145 @@
-# Aeon API — authentication and ID discovery
+# Aeon API: authentication and ID discovery
 
 ## API key
 
-Generate in the Aeon console: profile icon (top-right) → **API Keys** → **Create API Key**.
+Create in the Aeon console: **Security → Access Control → API Keys → Create API Key**. Choose a
+role (a key can do only what its role allows), an expiry (or never expire), and optionally
+restrict the key to IP allow lists. The key is shown once; store it in a secret store and
+revoke it if lost.
 
-The key is shown once on creation — store it securely. It does not expire unless manually revoked. It grants access to all resources in your account.
+Scripts read the key from the environment (here `AEON_API_KEY`) and never print or log it.
 
 ## Base request pattern
 
 ```bash
 # macOS / Linux
-AEON_TOKEN="your-api-key-here"
-BASE="https://cloud.yugabyte.com/api/v1"
+: "${AEON_API_KEY:?set AEON_API_KEY}"
+BASE="https://cloud.yugabyte.com/api/public/v1"
 
-curl -s -H "Authorization: Bearer $AEON_TOKEN" \
+curl -sf -H "Authorization: Bearer $AEON_API_KEY" \
      -H "Content-Type: application/json" \
      "$BASE/<path>"
 ```
 
 ```powershell
 # Windows PowerShell
-$Token = "your-api-key-here"
-$Base  = "https://cloud.yugabyte.com/api/v1"
-$Headers = @{ Authorization = "Bearer $Token"; "Content-Type" = "application/json" }
+$Base    = "https://cloud.yugabyte.com/api/public/v1"
+$Headers = @{ Authorization = "Bearer $env:AEON_API_KEY"; "Content-Type" = "application/json" }
 
 Invoke-RestMethod -Uri "$Base/<path>" -Headers $Headers
 ```
 
 ```python
 # Python (requests)
-import requests
+import os, requests
 
-TOKEN = "your-api-key-here"
-BASE  = "https://cloud.yugabyte.com/api/v1"
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+BASE    = "https://cloud.yugabyte.com/api/public/v1"
+HEADERS = {"Authorization": f"Bearer {os.environ['AEON_API_KEY']}",
+           "Content-Type": "application/json"}
 
-def get(path):
-    r = requests.get(f"{BASE}{path}", headers=HEADERS)
+def get(path, **params):
+    r = requests.get(f"{BASE}{path}", headers=HEADERS, params=params, timeout=30)
     r.raise_for_status()
     return r.json()
 ```
 
 ## Discovering your account ID
 
-Your `accountId` is fixed per account. Find it via:
+`GET /account` (singular) returns the account the key belongs to:
 
 ```bash
-curl -s -H "Authorization: Bearer $AEON_TOKEN" \
-  "https://cloud.yugabyte.com/api/v1/accounts" | jq '.data[].info.id'
+ACCOUNT_ID=$(curl -sf -H "Authorization: Bearer $AEON_API_KEY" "$BASE/account" | jq -r '.data.info.id')
 ```
 
 ```python
-accounts = get("/accounts")
-account_id = accounts["data"][0]["info"]["id"]
-print(account_id)  # e.g. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+account_id = get("/account")["data"]["info"]["id"]
 ```
 
-It also appears in the Aeon console URL when you navigate to account settings.
+There is no `GET /accounts` list.
 
 ## Listing projects
 
 ```bash
-curl -s -H "Authorization: Bearer $AEON_TOKEN" \
-  "$BASE/accounts/$ACCOUNT_ID/projects" | jq '.data[] | {id: .info.id, name: .spec.name}'
+curl -sf -H "Authorization: Bearer $AEON_API_KEY" "$BASE/accounts/$ACCOUNT_ID/projects" \
+  | jq '.data[] | {id, name}'
 ```
 
 ```python
-projects = get(f"/accounts/{account_id}/projects")
-for p in projects["data"]:
-    print(p["info"]["id"], p["spec"]["name"])
+projects = get(f"/accounts/{account_id}/projects")["data"]
+project_id = projects[0]["id"]          # each item also carries .info.id and .spec.name
 ```
 
-Most accounts have one project. The `projectId` is needed for all cluster operations.
-
-## Listing clusters and finding clusterId
+## Finding a cluster by name
 
 ```bash
-curl -s -H "Authorization: Bearer $AEON_TOKEN" \
-  "$BASE/accounts/$ACCOUNT_ID/projects/$PROJECT_ID/clusters" \
-  | jq '.data[] | {id: .info.id, name: .spec.name, state: .info.state}'
+CLUSTER_ID=$(curl -sf -H "Authorization: Bearer $AEON_API_KEY" \
+  "$BASE/accounts/$ACCOUNT_ID/projects/$PROJECT_ID/clusters?name=orders-prod" \
+  | jq -r '.data[0].info.id')
 ```
 
 ```python
-clusters = get(f"/accounts/{account_id}/projects/{project_id}/clusters")
-for c in clusters["data"]:
-    print(c["info"]["id"], c["spec"]["name"], c["info"]["state"])
+clusters = get(f"/accounts/{account_id}/projects/{project_id}/clusters", name="orders-prod")["data"]
+if not clusters:
+    raise SystemExit("no cluster named orders-prod")
+cluster_id = clusters[0]["info"]["id"]   # .spec.name, .info.state, .info.software_version
 ```
+
+List calls also filter by `state`, `cloud`, `region` and `tier`.
 
 ## Pagination
 
-List endpoints return paginated responses. Check for a `next_page_token` in the response and pass it as `?page_token=<token>` to get the next page:
+List responses carry `_metadata.continuation_token`; pass it back as `continuation_token` (with
+an optional `limit`) until it is null:
 
 ```python
-def get_all(path):
-    results, page_token = [], None
+def get_all(path, **params):
+    items, token = [], None
     while True:
-        url = path + (f"?page_token={page_token}" if page_token else "")
-        data = get(url)
-        results.extend(data.get("data", []))
-        page_token = data.get("next_page_token")
-        if not page_token:
-            break
-    return results
+        page = get(path, **params, **({"continuation_token": token} if token else {}))
+        items += page.get("data", [])
+        token = (page.get("_metadata") or {}).get("continuation_token")
+        if not token:
+            return items
 ```
 
-## Error handling
+## Errors and asynchronous operations
 
-| HTTP status | Meaning |
+| Status | Meaning |
 |---|---|
-| `200` | Success |
-| `400` | Bad request — check the request body structure |
-| `401` | Invalid or missing API token |
-| `403` | Token valid but insufficient permissions for the operation |
-| `404` | Resource not found — check accountId/projectId/clusterId |
-| `409` | Conflict — cluster is in a transitional state; wait and retry |
-| `422` | Unprocessable — validation error; response body contains details |
+| `200` | Read succeeded |
+| `202` | Accepted: an edit, pause, resume, delete or restore has started |
+| `400` | Bad request: the detail names the fields, e.g. `{"error": {"detail": "API Input Validation Failure, Error: ClusterSpec.name must not be null", "status": 400}}` |
+| `401` | JSON `Invalid JWT` or `Request does not contain valid authorization token`: a bad or missing key. An **XML** `AuthenticationRequired` page means the path is not the public API (`/api/v1/...` instead of `/api/public/v1/...`), not a bad key |
+| `403` | The key's role does not allow this operation, or the key is IP-restricted |
+| `404` | An **HTML** page: the path does not exist (check `/api/public/v1` and hyphenated segments). JSON `Cannot find cluster with ID '...'` (or backup, project): the ID is wrong. An unknown allow-list ID answers `400` instead |
+| `500` | `Unexpected internal error`: seen when changing a cluster while a task on it is still running; wait for the task and retry |
 
-Long-running operations (cluster create, scale, restore) return a task/operation ID in the response. Poll the cluster state (`GET .../clusters/{clusterId}`) until `info.state` returns `ACTIVE`.
+Error bodies are not always JSON: read `error.detail` when the body parses, otherwise report the
+status and the start of the text.
 
-## Swagger reference
+Long-running operations return `202` and the cluster moves through transitional states
+(`UPDATING`, `PAUSING`, `RESUMING`, `DELETING`, ...). Poll until it settles:
 
-The full endpoint catalogue with request/response schemas is at:
-`https://cloud.yugabyte.com/swagger`
+```python
+import time
 
-Use it to discover endpoints not covered in `recipes.md` and to verify exact request body schemas, which change between Aeon versions.
+def wait_for_state(account_id, project_id, cluster_id, want=("ACTIVE",), timeout_s=3600):
+    path = f"/accounts/{account_id}/projects/{project_id}/clusters/{cluster_id}"
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        state = get(path)["data"]["info"]["state"]
+        if state in want:
+            return state
+        if state.endswith("FAILED"):
+            raise RuntimeError(f"cluster entered {state}")
+        time.sleep(30)
+    raise TimeoutError(f"cluster not in {want} after {timeout_s}s")
+```
+
+Tasks for a cluster: `GET /accounts/{accountId}/tasks?entity_id={clusterId}`.
+
+## Reference
+
+https://api-docs.yugabyte.com/docs/managed-apis/9u5yqnccbe8lk-yugabyte-db-managed-rest-api has
+every endpoint with its request and response schema. Verify a path there before using one not
+listed in this skill.
