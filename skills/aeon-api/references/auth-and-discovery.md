@@ -117,8 +117,9 @@ def get_all(path, **params):
 Error bodies are not always JSON: read `error.detail` when the body parses, otherwise report the
 status and the start of the text.
 
-Long-running operations return `202` and the cluster moves through transitional states
-(`UPDATING`, `PAUSING`, `RESUMING`, `DELETING`, ...). Poll until it settles:
+Long-running operations return `202`; the cluster reads `QUEUED` at once, then transitional
+states (`UPDATING`, `UPDATING_LB`, `PAUSING`, `RESUMING`, `DELETING`, ...). Poll until it
+settles, and for an edit also check the spec shows the change (it updates only near the end):
 
 ```python
 import time

@@ -43,6 +43,31 @@ Path segments use **hyphens** (`allow-lists`, `backup-schedules`), never undersc
 bodies use snake_case fields. Discovery of IDs, pagination and errors:
 [`references/auth-and-discovery.md`](references/auth-and-discovery.md).
 
+## Endpoints
+
+Every path is under `https://cloud.yugabyte.com/api/public/v1`; `P` is
+`/accounts/{accountId}/projects/{projectId}`. Use only these, or ones the API reference lists.
+
+| Task | Call | Answer |
+|---|---|---|
+| Account ID | `GET /account` | `data.info.id` |
+| Projects | `GET /accounts/{accountId}/projects` | `data[].id`, `data[].name` |
+| Find a cluster | `GET P/clusters?name=<name>` | `data[].info.id`, `.info.state`, `.spec` |
+| Cluster details | `GET P/clusters/{clusterId}` | `data.spec`, `data.info` |
+| Scale / edit | `PUT P/clusters/{clusterId}` with the whole `spec` | `202` |
+| Pause / resume | `POST P/clusters/{clusterId}/pause` (`/resume`), no body | `202` |
+| Nodes | `GET P/clusters/{clusterId}/nodes` | `data[].name`, `.is_node_up` |
+| Metrics | `GET P/clusters/{clusterId}/metrics?metrics=CPU_USAGE&start_time=<epoch s>&end_time=<epoch s>` | `data[].values` |
+| Allow lists (project) | `GET` / `POST P/allow-lists`, `DELETE P/allow-lists/{id}` | `data[].info.id`, `.spec.allow_list` |
+| Cluster's allow lists | `GET` / `PUT P/clusters/{clusterId}/allow-lists`, body `["<id>", ...]` | PUT `202`, replaces the set |
+| Backups | `GET P/backups?cluster_id=`, `POST P/backups` `{"cluster_id": ...}`, `GET P/backups/{id}` | POST `202` |
+| Backup schedules | `GET` / `POST P/clusters/{clusterId}/backup-schedules` | |
+| Restore | `POST P/restore` `{"backup_id": ..., "cluster_id": ...}` | |
+| Tasks | `GET /accounts/{accountId}/tasks?entity_id={clusterId}&task_type=EDIT_ALLOW_LIST` | newest first, `data[].info.state` |
+| Cluster CA certificate | `GET /connection-certificate` (no key needed) | `data`: PEM |
+
+There is no endpoint for database users, gflags, or per-node operations other than the above.
+
 ## Rules
 
 - **Discover, don't hard-code IDs.** Resolve account, project and cluster IDs by name from the

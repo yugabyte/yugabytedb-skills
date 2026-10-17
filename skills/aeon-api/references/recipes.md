@@ -21,8 +21,10 @@ curl -sf "${AUTH[@]}" "$P/clusters/$CLUSTER_ID" | jq '.data | {
   regions: [.spec.cluster_region_info[]? | {region: .placement_info.cloud_info.region, nodes: .placement_info.num_nodes}]}'
 ```
 
-States you will see: `ACTIVE`, `PAUSED`, and transitional ones such as `QUEUED`, `PROVISIONING`,
-`UPDATING`, `PAUSING`, `RESUMING`, `DELETING`; failures end in `_FAILED`.
+States you will see: `ACTIVE`, `PAUSED`, and transitional ones such as `QUEUED`, `UPDATING`,
+`UPDATING_LB`, `PAUSING`, `RESUMING`, `DELETING` (creation adds `BOOTSTRAPPING`,
+`CONFIGURING` and others); failures end in `_FAILED`. Wait on "not yet settled", not on a list
+of states you expect.
 
 ### Nodes
 
@@ -49,11 +51,16 @@ diff <(jq . <<<"$SPEC") <(jq . <<<"$NEW")          # show the change; confirm be
 curl -sf -X PUT "${AUTH[@]}" "$P/clusters/$CLUSTER_ID" -d "$NEW" | jq '.data.info.state'   # 202
 ```
 
-Then poll `info.state` until `ACTIVE` (see `wait_for_state` in `auth-and-discovery.md`). Do not
-send another edit while the cluster is `UPDATING`.
+The `202` response already reads `QUEUED`, with the old size. Then the cluster reads `QUEUED`,
+`UPDATING`, `UPDATING_LB` (most of the time), and `ACTIVE`: about 10 minutes for 3 to 6 nodes
+on AWS. The new nodes appear in `/nodes` before the end, and `spec.cluster_info.num_nodes`
+changes only shortly before `ACTIVE`. So the edit is done when the state is `ACTIVE` **and** the
+spec shows the target (or when the `EDIT_CLUSTER` task for the cluster has `SUCCEEDED`). Treat
+any state other than `ACTIVE` or one ending in `_FAILED` as still in progress, and do not send
+another edit until it is done.
 
 ```python
-import os, requests
+import os, time, requests
 BASE = "https://cloud.yugabyte.com/api/public/v1"
 H = {"Authorization": f"Bearer {os.environ['AEON_API_KEY']}", "Content-Type": "application/json"}
 url = f"{BASE}/accounts/{account_id}/projects/{project_id}/clusters/{cluster_id}"
@@ -65,7 +72,19 @@ spec = cluster["spec"]
 spec["cluster_info"]["num_nodes"] = 6
 spec["cluster_region_info"][0]["placement_info"]["num_nodes"] = 6
 r = requests.put(url, headers=H, json=spec, timeout=60)
-r.raise_for_status()                      # 202 Accepted; poll until ACTIVE
+r.raise_for_status()                      # 202 Accepted
+
+deadline = time.monotonic() + 3600
+while True:
+    c = requests.get(url, headers=H, timeout=30).json()["data"]
+    state = c["info"]["state"]
+    if state.endswith("_FAILED"):
+        raise SystemExit(f"edit failed: {state}")
+    if state == "ACTIVE" and c["spec"]["cluster_info"]["num_nodes"] == 6:
+        break
+    if time.monotonic() > deadline:
+        raise SystemExit(f"still {state} after an hour")
+    time.sleep(30)                        # QUEUED, UPDATING, UPDATING_LB, ...
 ```
 
 ### Pause and resume
@@ -100,13 +119,24 @@ AL_ID=$(curl -sf -X POST "${AUTH[@]}" "$P/allow-lists" -d '{
 }' | jq -r '.data.info.id')
 
 # Assign it to the cluster, keeping the lists already assigned (202: an EDIT_ALLOW_LIST task)
+TASKS="$BASE/accounts/$ACCOUNT_ID/tasks?entity_id=$CLUSTER_ID&task_type=EDIT_ALLOW_LIST&limit=1"
+BEFORE=$(curl -sf "${AUTH[@]}" "$TASKS" | jq -r '.data[0].info.id // ""')   # the last task, if any
 CURRENT=$(curl -sf "${AUTH[@]}" "$P/clusters/$CLUSTER_ID/allow-lists" | jq '[.data[].info.id]')
-curl -sf -X PUT "${AUTH[@]}" "$P/clusters/$CLUSTER_ID/allow-lists" \
-  -d "$(jq -c --arg id "$AL_ID" '. + [$id] | unique' <<<"$CURRENT")"
-
-# Wait for the task before any further change
-until [ "$(curl -sf "${AUTH[@]}" "$BASE/accounts/$ACCOUNT_ID/tasks?entity_id=$CLUSTER_ID&task_type=EDIT_ALLOW_LIST&limit=1" \
-          | jq -r '.data[0].info.state')" = SUCCEEDED ]; do sleep 10; done
+if jq -e --arg id "$AL_ID" 'index($id)' <<<"$CURRENT" >/dev/null; then
+  echo "already assigned"
+else
+  curl -sf -X PUT "${AUTH[@]}" "$P/clusters/$CLUSTER_ID/allow-lists" \
+    -d "$(jq -c --arg id "$AL_ID" '. + [$id] | unique' <<<"$CURRENT")" >/dev/null
+  # Wait for the new task (not an older SUCCEEDED one), with a deadline
+  STATE=""
+  for _ in $(seq 60); do
+    T=$(curl -sf "${AUTH[@]}" "$TASKS" | jq -r '.data[0].info | "\(.id) \(.state)"')
+    [ "${T% *}" != "$BEFORE" ] && STATE="${T#* }"
+    case "$STATE" in SUCCEEDED|FAILED) break ;; esac
+    sleep 5
+  done
+  [ "$STATE" = SUCCEEDED ] || { echo "allow-list task: ${STATE:-not started} after 5 minutes" >&2; exit 1; }
+fi
 
 # Delete an allow list: unassign it from every cluster first (and wait for those tasks)
 curl -sf -X DELETE "${AUTH[@]}" "$P/allow-lists/$AL_ID"
@@ -180,6 +210,37 @@ Each series is `{name, labels, values: [[timestamp, value], ...]}`; a metric wit
 the window is left out of `data` rather than returned empty. This is not the full
 Prometheus surface: for that, configure metrics export (`metrics-exporter-configs`, or the
 console's Integrations).
+
+---
+
+## Database users (SQL, not the API)
+
+The API has no database-user resource. Create users with SQL on the cluster, connected as the
+admin user set at cluster creation, over TLS verified with the cluster CA. The host is
+`info.cluster_endpoints[].host` (or `info.endpoints.<region>`); the CA comes from
+`GET /connection-certificate`, which needs no key.
+
+```bash
+HOST=$(curl -sf "${AUTH[@]}" "$P/clusters/$CLUSTER_ID" | jq -r '.data.info.cluster_endpoints[0].host')
+curl -sf "$BASE/connection-certificate" | jq -r .data > root.crt
+# PGPASSWORD (admin) and REPORTING_PASSWORD come from a secret store, never the command line
+psql "host=$HOST port=5433 dbname=yugabyte user=admin sslmode=verify-full sslrootcert=root.crt" \
+  -v ON_ERROR_STOP=1 -v pw="$REPORTING_PASSWORD" -f reporting.sql
+```
+
+```sql
+-- reporting.sql: idempotent, re-runnable; the password arrives as the psql variable :pw
+SELECT 'CREATE ROLE reporting LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'reporting')
+\gexec
+ALTER ROLE reporting WITH LOGIN PASSWORD :'pw';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO reporting;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO reporting;
+```
+
+Aeon has no superuser for you to grant; the admin user does not own the `yugabyte` database or
+the `public` schema, so `GRANT CONNECT` / `GRANT USAGE` on them only warn (every role already
+has both through PUBLIC). The client also needs network access: an allow list holding its
+address, assigned to the cluster.
 
 ---
 
