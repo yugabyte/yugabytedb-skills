@@ -65,7 +65,7 @@
     },
     {
       "name": "aeon-api",
-      "description": "Use when scripting, automating, or querying YugabyteDB Aeon (YugabyteDB Managed cloud) via its REST API — including listing, scaling, pausing and resuming clusters, configuring network allow lists, reading cluster metrics, managing backups and restores, and working with VPC peering or private endpoints. Triggers on YugabyteDB Aeon API, YugabyteDB Managed API, cloud.yugabyte.com/api, Aeon REST, automate Aeon, scale Aeon cluster programmatically, Aeon metrics via API, Aeon backup via API, Aeon allowlist API. Does NOT cover the YBA (YugabyteDB Anywhere) self-managed API — use `yba-api` for that. Does NOT cover performance diagnosis (SQL or metrics layer) — use `yb-perf` for that.",
+      "description": "Use when scripting, automating, or querying YugabyteDB Aeon (YugabyteDB Managed cloud) via its REST API — including listing, scaling, pausing and resuming clusters, configuring network allow lists, reading cluster metrics, managing backups and restores, working with VPC peering or private endpoints, and creating database users on an Aeon cluster (with SQL, as the API has no endpoint for them). Triggers on YugabyteDB Aeon API, YugabyteDB Managed API, cloud.yugabyte.com/api, Aeon REST, automate Aeon, scale Aeon cluster programmatically, Aeon metrics via API, Aeon backup via API, Aeon allowlist API, Aeon database user, Aeon read-only user. Does NOT cover the YBA (YugabyteDB Anywhere) self-managed API — use `yba-api` for that. Does NOT cover performance diagnosis (SQL or metrics layer) — use `yb-perf` for that.",
       "source": "./",
       "strict": false,
       "skills": [

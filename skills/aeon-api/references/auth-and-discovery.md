@@ -16,7 +16,7 @@ Scripts read the key from the environment (here `AEON_API_KEY`) and never print 
 : "${AEON_API_KEY:?set AEON_API_KEY}"
 BASE="https://cloud.yugabyte.com/api/public/v1"
 
-curl -sf -H "Authorization: Bearer $AEON_API_KEY" \
+curl -sS --fail-with-body -H "Authorization: Bearer $AEON_API_KEY" \
      -H "Content-Type: application/json" \
      "$BASE/<path>"
 ```
@@ -48,7 +48,7 @@ def get(path, **params):
 `GET /account` (singular) returns the account the key belongs to:
 
 ```bash
-ACCOUNT_ID=$(curl -sf -H "Authorization: Bearer $AEON_API_KEY" "$BASE/account" | jq -r '.data.info.id')
+ACCOUNT_ID=$(curl -sS --fail-with-body -H "Authorization: Bearer $AEON_API_KEY" "$BASE/account" | jq -r '.data.info.id')
 ```
 
 ```python
@@ -60,7 +60,7 @@ There is no `GET /accounts` list.
 ## Listing projects
 
 ```bash
-curl -sf -H "Authorization: Bearer $AEON_API_KEY" "$BASE/accounts/$ACCOUNT_ID/projects" \
+curl -sS --fail-with-body -H "Authorization: Bearer $AEON_API_KEY" "$BASE/accounts/$ACCOUNT_ID/projects" \
   | jq '.data[] | {id, name}'
 ```
 
@@ -72,9 +72,10 @@ project_id = projects[0]["id"]          # each item also carries .info.id and .s
 ## Finding a cluster by name
 
 ```bash
-CLUSTER_ID=$(curl -sf -H "Authorization: Bearer $AEON_API_KEY" \
+CLUSTER_ID=$(curl -sS --fail-with-body -H "Authorization: Bearer $AEON_API_KEY" \
   "$BASE/accounts/$ACCOUNT_ID/projects/$PROJECT_ID/clusters?name=orders-prod" \
-  | jq -r '.data[0].info.id')
+  | jq -r '[.data[] | select(.spec.name == "orders-prod")][0].info.id // empty')
+[ -n "$CLUSTER_ID" ] || { echo "no cluster named orders-prod in project $PROJECT_ID" >&2; exit 1; }
 ```
 
 ```python
@@ -118,23 +119,30 @@ Error bodies are not always JSON: read `error.detail` when the body parses, othe
 status and the start of the text.
 
 Long-running operations return `202`; the cluster reads `QUEUED` at once, then transitional
-states (`UPDATING`, `UPDATING_LB`, `PAUSING`, `RESUMING`, `DELETING`, ...). Poll until it
-settles, and for an edit also check the spec shows the change (it updates only near the end):
+states (`UPDATING`, `UPDATING_LB`, `PAUSING`, `RESUMING`, `DELETING`, ...). This helper waits
+for a **state** and so suits pause (`want=("PAUSED",)`) and resume. An edit is done only when the
+spec also shows the change (it updates near the end), so pass `done` for a scale, as below; an
+allow-list assignment does not change the state at all: wait on its task (`recipes.md`).
 
 ```python
 import time
 
-def wait_for_state(account_id, project_id, cluster_id, want=("ACTIVE",), timeout_s=3600):
+def wait_for_state(account_id, project_id, cluster_id, want=("ACTIVE",), done=None, timeout_s=3600):
+    """Wait until the cluster's state is in `want` and, if given, done(cluster) is true."""
     path = f"/accounts/{account_id}/projects/{project_id}/clusters/{cluster_id}"
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        state = get(path)["data"]["info"]["state"]
-        if state in want:
-            return state
-        if state.endswith("FAILED"):
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        cluster = get(path)["data"]
+        state = cluster["info"]["state"]
+        if state.endswith("_FAILED"):
             raise RuntimeError(f"cluster entered {state}")
+        if state in want and (done is None or done(cluster)):
+            return cluster
         time.sleep(30)
-    raise TimeoutError(f"cluster not in {want} after {timeout_s}s")
+    raise TimeoutError(f"cluster not settled in {want} after {timeout_s}s")
+
+# A scale to 6 nodes: ACTIVE alone is not enough
+# wait_for_state(a, p, c, done=lambda cl: cl["spec"]["cluster_info"]["num_nodes"] == 6)
 ```
 
 Tasks for a cluster: `GET /accounts/{accountId}/tasks?entity_id={clusterId}`.
