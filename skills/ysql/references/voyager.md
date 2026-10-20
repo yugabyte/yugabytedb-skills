@@ -80,7 +80,7 @@ Converted DDL is written to `./export-output/schema/`. Review each file before i
 
 ## Step 3: schema conversion review checklist
 
-Work through these in order after running `export schema`. Each item links to the relevant section in the main `ysql` SKILL.md for design guidance.
+Work through these in order after running `export schema`. Each item links to the relevant section in [schema-design.md](schema-design.md) for design guidance.
 
 ### 3a. Primary key and sharding strategy
 
@@ -88,7 +88,7 @@ Voyager defaults to **hash sharding** for most tables. Review each table:
 
 1. **Tables where hash sharding is wrong:** Tables that are primarily queried with range predicates on the PK (`WHERE created_at BETWEEN ...`, `WHERE id > ? ORDER BY id LIMIT 100`) need `ASC`/`DESC` sharding — but **only if the PK is non-monotonic** or pre-split. A monotonic range-sharded PK (timestamp, sequence) will hotspot on writes.
 
-2. **Tables where range sharding + a bucket is right:** High-ingest time-series tables where range queries are also needed. See `ysql` skill → Index ordering and scalability.
+2. **Tables where range sharding + a bucket is right:** High-ingest time-series tables where range queries are also needed. See [schema-design.md](schema-design.md#index-design) → Index ordering and scalability.
 
 3. **Multi-tenant tables:** Ensure `tenant_id` is the first hash component: `PRIMARY KEY ((tenant_id) HASH, ...)`. For large tenants with uneven sizes, use a composite hash: `PRIMARY KEY ((tenant_id, entity_id) HASH, ...)`.
 
@@ -96,7 +96,7 @@ Voyager defaults to **hash sharding** for most tables. Review each table:
 
 Review every exported `CREATE INDEX` statement:
 
-- **ASC/DESC index on a monotonic column** (timestamp, `created_at`, BIGSERIAL): will hotspot on writes — add a hash bucket prefix or redesign as described in `ysql` skill
+- **ASC/DESC index on a monotonic column** (timestamp, `created_at`, BIGSERIAL): will hotspot on writes — add a hash bucket prefix or redesign as described in [schema-design.md](schema-design.md#index-design) → Index ordering and scalability
 - **Missing FK indexes:** Voyager may not add indexes on referencing (child) foreign key columns — scan the DDL for `FOREIGN KEY` references and verify each has a matching index
 - **Speculative single-column indexes:** Remove indexes that don't match any real query shape in the application
 - **Duplicate indexes:** Two indexes starting with the same column — remove the narrower one
