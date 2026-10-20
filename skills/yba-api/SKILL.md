@@ -1,6 +1,6 @@
 ---
 name: yba-api
-description: Use when scripting, automating, or troubleshooting the YugabyteDB Anywhere (YBA) REST API — the control-plane API for self-managed YBA instances that creates and manages providers, releases, universes, backups, KMS, and DR. Triggers on `/api/v1/`, `/api/v2/`, `X-AUTH-YW-API-TOKEN`, `apiToken`, `customerUUID`, `taskUUID`, `Invoke-YbaRequest`, registration of a new YBA instance, or any mention of the YBA API. Does NOT cover YugabyteDB Aeon, which is a different API surface with no skill in this marketplace, or database access via YSQL/YCQL (use the ysql and ycql skills).
+description: Use when scripting, automating, or troubleshooting the YugabyteDB Anywhere (YBA) REST API — the control-plane API for self-managed YBA instances that creates and manages providers, releases, universes, backups, KMS, and DR. Triggers on `/api/v1/`, `/api/v2/`, `X-AUTH-YW-API-TOKEN`, `apiToken`, `customerUUID`, `taskUUID`, `Invoke-YbaRequest`, registration of a new YBA instance, or any mention of the YBA API. Does NOT cover YugabyteDB Aeon (use the aeon-api skill) or database access via YSQL/YCQL (use the ysql and ycql skills).
 ---
 
 # YugabyteDB Anywhere REST API
@@ -8,7 +8,7 @@ description: Use when scripting, automating, or troubleshooting the YugabyteDB A
 This skill covers the **YBA control-plane REST API** — the HTTP API exposed by a self-managed YugabyteDB Anywhere (YBA) instance for managing providers, releases, universes, backups, KMS, alerts, HA, RBAC, and DR.
 
 It is **not** about:
-- **YugabyteDB Aeon** — fully-managed cloud DBaaS, different API surface.
+- **YugabyteDB Aeon** — fully-managed cloud DBaaS, different API surface. Use the aeon-api skill.
 - **YSQL / YCQL** — the database APIs (PostgreSQL- and Cassandra-compatible) on ports 5433 / 9042.
 
 **Reference docs:**
