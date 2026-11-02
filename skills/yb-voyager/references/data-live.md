@@ -97,7 +97,7 @@ All `initiate cutover` commands only set a flag; the work happens in the running
 
 Pre-checks before initiating:
 1. Application writes to the source are stopped (the gate in section 3).
-2. Both the exporter and importer PIDs are alive. If the exporter is dead, the importer waits about 2 minutes and fails with "timeout waiting for cutover export data from source to complete". Restart the exporter first, then re-run the cutover command.
+2. Both the exporter and importer PIDs are alive. If the exporter is dead, the cutover is accepted but stays `INITIATED` with no error, and the importer keeps running silently. Restart the exporter (same command), then poll `cutover status` again.
 3. Export `SOURCE_DB_PASSWORD`. `initiate cutover to target` runs the schema drift check itself and needs the source password for it. If it finds drift and the run is non-interactive, the cutover is not started. Resolve the drift with the user, or pass `--skip-pre-checks schema_drift` only with their approval.
 
 Plain live (no rollback):
@@ -109,7 +109,7 @@ yb-voyager initiate cutover to target --export-dir <dir> --prepare-for-fall-back
 `--prepare-for-fall-back` is mandatory for every migration that is not fall-forward; the command exits with `missing required flag` without it. Do not add other flags.
 
 Then poll `cutover status`:
-- `INITIATED` for a long time: a paired process is dead. Check section 5.
+- `INITIATED` for a long time: a paired process is probably dead. Voyager reports no error for this, so check section 5.
 - `COMPLETED`: the exporter and importer have exited on their own. Move to finalize.
 
 ## 8. Finalize
