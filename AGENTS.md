@@ -64,8 +64,12 @@ skills/
     references/               # engine.md (outputs, passes), checks.md, intake.md, validation.md, critic.md
     rules/                    # rules.json (rules + regress-test citations), inputs.json (what each input enables)
     scripts/                  # yb-model.py CLI and ybm/ engine (Python 3.8+, standard library only), collect.sql, yb-lint.py
+  yb-voyager/
+    SKILL.md                  # PostgreSQL to YugabyteDB migration with Voyager: phases, approval gates, non-interactive rules, destructive-action list
+    references/               # One file per phase or flow: setup.md, assess-and-plan.md, schema.md, data-offline.md, data-live.md, fall-back.md, fall-forward.md, end-migration.md
 evals/
   yb-model/                   # yb-model evals: synthetic fixture with answer key, blind-judge rubric, planner oracle
+  yb-voyager/                 # yb-voyager scenario prompts and behaviour checklists (PostgreSQL source)
 .claude-plugin/
   marketplace.json            # Claude Plugin Marketplace metadata (version, plugin definitions)
 .skills-lint.json             # Known exceptions for the static checks (each needs a rule and a reason)
@@ -275,6 +279,7 @@ npx skills add yugabyte/yugabytedb-skills -s yb-k8s-operator # Kubernetes Operat
 npx skills add yugabyte/yugabytedb-skills -s yba-api         # YBA REST API skill only
 npx skills add yugabyte/yugabytedb-skills -s yb-rag-langchain # RAG / LangChain skill only
 npx skills add yugabyte/yugabytedb-skills -s yba-terraform   # YBA Terraform provider skill only
+npx skills add yugabyte/yugabytedb-skills -s yb-voyager      # Voyager migration orchestrator only
 ```
 
 ## Static checks
