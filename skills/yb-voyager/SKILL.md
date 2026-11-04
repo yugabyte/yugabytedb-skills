@@ -5,49 +5,44 @@ description: Guides a full PostgreSQL to YugabyteDB migration with YugabyteDB Vo
 
 # YugabyteDB Voyager migration orchestrator
 
-You run a migration with the user, one phase at a time. The Voyager docs own the commands, flags
-and procedures; this skill owns the order, the decisions, the gates, and the traps an agent hits
-running Voyager unattended. Fetch the docs for every step. Do not work from memory: Voyager
-changes often.
-
-## Scope
-
-- **PostgreSQL sources only.** The docs list MySQL and Oracle migration as deprecated, with
-  support ended. For those sources, stop: point the user to the
-  [introduction](https://docs.yugabyte.com/stable/yugabyte-voyager/introduction/) and Yugabyte
-  Support, and do not orchestrate.
-- **Bulk load from CSV/text files** (`import data file`) is a separate workflow. Link
-  [bulk data load](https://docs.yugabyte.com/stable/yugabyte-voyager/migrate/bulk-data-load/)
-  and stop.
-- **Iterative cutover** (repeated fall-back rounds) exists, but this skill does not orchestrate
-  it. If the user asks for it, link
-  [iterative cutover](https://docs.yugabyte.com/stable/yugabyte-voyager/reference/iterative-cutover/)
-  and say it is lightly documented.
+You run a migration with the user, one phase at a time. This skill owns the order, the
+decisions, the gates and the safety rules. It deliberately holds no release-specific facts:
+no flag names beyond the core ones, no defaults, file paths, report fields, status values or
+messages. Those change between Voyager releases, so take them from the sources below every time.
 
 ## Where facts come from
 
-Check in this order, and prefer the higher source when two disagree:
-
-1. **`yb-voyager <command> --help`** for flags and defaults. It matches the installed binary;
-   the docs describe only the latest release.
-2. **The docs page for the step**, fetched as Markdown by appending `.md` to the page URL (for
+1. **What the command prints and the files it writes.** Read the output, the log and every
+   report a command says it wrote. This is the ground truth for the installed version.
+2. **`yb-voyager <command> --help`** for flags, accepted values and defaults.
+3. **The docs page for the step**, fetched as Markdown by appending `.md` to the page URL (for
    example `https://docs.yugabyte.com/stable/yugabyte-voyager/migrate/live-migrate.md`). Each
-   reference file below names the pages for its phase.
-3. **A YugabyteDB docs search tool, if one is connected** (the Kapa MCP server at
-   `https://yugabyte.mcp.kapa.ai`). Use it for error messages, "is X supported" questions and
-   anything the pages above do not answer. Its answers can mix releases, so confirm any flag it
-   suggests with `--help` before running it.
+   reference file names the pages for its phase. The docs describe the latest release.
+4. **A YugabyteDB docs search tool, if connected** (the Kapa MCP server at
+   `https://yugabyte.mcp.kapa.ai`) for error messages and "is X supported" questions. Confirm
+   any flag it suggests with `--help`.
 
-Lines marked `**Docs gap:**` in this skill cover places where the docs were wrong or silent when
-this skill was written. If the fetched docs now say otherwise, follow the docs.
+When the docs and the CLI disagree, the CLI wins: follow its message or `--help`, and tell the
+user the docs differ. Never fill a gap from memory.
+
+## Scope
+
+- **PostgreSQL sources.** For any other source, check the
+  [introduction](https://docs.yugabyte.com/stable/yugabyte-voyager/introduction/) for current
+  support, tell the user, and do not orchestrate.
+- **Bulk load from files** is a separate workflow: link
+  [bulk data load](https://docs.yugabyte.com/stable/yugabyte-voyager/migrate/bulk-data-load/)
+  and stop.
+- **Iterative cutover** (repeated fall-back rounds) is not orchestrated here: link
+  [iterative cutover](https://docs.yugabyte.com/stable/yugabyte-voyager/reference/iterative-cutover/).
 
 ## Phases and gates
 
 | # | Phase | Read | Ends with |
 |---|---|---|---|
-| 1 | Setup: install and version check, export dir, stage-1 config, passwords, assessment grants | `references/setup.md` | Voyager verified, source reachable as the migration user |
-| 2 | Assess: run `assess-migration`, present the report | `references/assess-and-plan.md` | **GATE**: user has seen complexity, issues and sizing |
-| 3 | Plan: choose the flow, write the full config, prepare source and target for that flow | `references/assess-and-plan.md` | **GATE**: flow chosen, prep done by the user, target DB created |
+| 1 | Setup: install and version check, export dir, assessment config, passwords, assessment grants | `references/setup.md` | Voyager verified, source reachable as the migration user |
+| 2 | Assess: run `assess-migration`, present the report | `references/assess-and-plan.md` | **GATE**: user has seen the findings and sizing |
+| 3 | Plan: choose the flow, write the flow's config, prepare source and target | `references/assess-and-plan.md` | **GATE**: flow chosen, prep done by the user, target DB created |
 | 4 | Schema: export, analyze-schema fix loop, import | `references/schema.md` | **GATE**: clean analysis, schema imported and verified |
 | 5a | Data, offline flow | `references/data-offline.md` | **GATE**: data imported, finalized, row counts match |
 | 5b | Data, live flows, up to cutover to target | `references/data-live.md` | **GATE** before every cutover |
@@ -61,7 +56,7 @@ Read only the reference file for the current phase, plus the flow file the user 
 
 ```
 Phase <n> done: <what ran, outcome in one or two lines>
-Evidence: <report path / counts / status>
+Evidence: <report path / counts / status, as printed by Voyager>
 Decisions recorded: <any>
 Next: <phase n+1 and its first command>
 Needs from you: <approvals, actions you must run yourself, info>
@@ -75,72 +70,91 @@ Silence, or a reply about something else, is not a yes.
 Keep `<export-dir>/agent-progress.md`, and update it after every command that changes state. It
 lets a new session pick up where the last one stopped:
 
-- Voyager version recorded at setup, the source and target hosts (no passwords), and the config file path
-- the chosen flow and why, plus every user decision (grant-script ownership option, backups, colocation)
+- Voyager version recorded at setup, the source and target hosts (no passwords), the config file path
+- the chosen flow and why, plus every user decision
 - the current phase and the last gate passed
 - schema fixes applied (file, object, change, approved by the user)
 - background jobs: command, PID, log file, start time
-- source and target changes the user made (grants, `wal_level`, gflags), so they can be reverted at the end
+- every change the user made to source or target, so it can be reverted at the end
 
 **Resuming:** read the progress file, run `yb-voyager version` and compare it with the recorded
-version, check which background PIDs are alive, and poll status (see the phase file) before
-running anything. If the version changed, stop and tell the user: the release notes list
-upgrades that cannot continue an in-flight migration.
+version, check which background PIDs are alive, and poll status before running anything. If the
+version changed, stop and tell the user: a newer release can refuse to continue a migration
+started on an older one, and the release notes say which.
 
 ## Running Voyager without a terminal
 
-You usually run commands with no TTY. Any Voyager prompt then hangs or aborts the run, so remove
-each prompt before it happens:
+You usually run commands with no TTY, so any prompt hangs or aborts the run. Remove each
+prompt's cause before it happens:
 
-- **Passwords:** the user exports `SOURCE_DB_PASSWORD`, `TARGET_DB_PASSWORD` and (fall-forward)
-  `SOURCE_REPLICA_DB_PASSWORD` in the environment that runs Voyager. Check with
-  `test -n "$TARGET_DB_PASSWORD"` without printing the value. Never write a password into the
-  config file or onto a command line: both end up on disk.
-- **Confirmations:** `--yes` answers every prompt with yes, including destructive ones. Pass it
-  only on a command the user has just approved, never as a default. It is a CLI flag only (not
-  allowed in the config file). On `initiate cutover` it is accepted but hidden from `--help`.
-- **Long-running commands** (`assess-migration`, `export data`, `import data`,
-  `archive changes`) run in the background with `nohup`. Redirect output to a log file under the
-  export dir, add `--disable-pb true` where the command accepts it, and record the PID in the
-  progress file. Poll status at a regular interval rather than waiting on the process.
-- **One command per export dir at a time.** Voyager holds a lock file per command in the export
-  dir. Before starting or restarting a command, check whether its PID is still running.
-- **Config file:** Voyager rejects unknown keys. After editing it, run the next real command and
-  read the first lines of its output for a config error.
+- **Passwords** come only from the environment variables named on the
+  [configuration-file page](https://docs.yugabyte.com/stable/yugabyte-voyager/reference/configuration-file/).
+  The user exports them. Check that each is set without printing it. Never write a password
+  into a config file, onto a command line or into chat.
+- **Questions** (continue anyway, include replicas, which option): answer them by setting the
+  matching option up front, after the user decides. If a run stops at a question you did not
+  foresee, stop it, show the user the question, and fix the cause.
+- **`--yes`** answers every prompt with yes, destructive ones included. Use it only on a command
+  the user has just approved, never as a default.
+- **Long-running commands** (`assess-migration`, `export data`, `import data`, `archive changes`,
+  the reverse-sync commands) run in the background with `nohup`, output to a log file, PID
+  recorded in the progress file. Turn off the progress display if `--help` offers a way. Poll
+  rather than wait.
+- **One run of a command per export dir.** Before starting or restarting one, check that its
+  recorded PID is gone.
+- **Config file:** after editing it, run the next real command and read the start of its output;
+  if it rejects a key, fix the key from the message and the configuration-file page.
+
+## Silent failures
+
+Most Voyager problems fail loudly. These do not, so check for them explicitly:
+
+- **Exit code 0 is not success.** A command can finish with skipped rows or failed statements.
+  Read the status or report it wrote and treat any errored row, failed statement or partial
+  status as not done.
+- **Every file export writes must be accounted for.** If export produced something the import
+  step does not apply (the docs or the analyze output say which), show it to the user.
+- **Template values are not decisions.** Set every option that deletes, skips or backs up data
+  explicitly after asking the user. Never run with a value only because a template had it.
+- **A state that does not advance with no error** (a cutover that stays initiated, a job with a
+  live PID and a silent log) usually means a paired process died or a prompt is waiting. Check
+  liveness and the log before anything else.
+- **A script that stops at a prompt may have already changed things.** Record what it did up to
+  that point.
 
 ## Never without explicit approval for that exact action
 
-Each of these destroys data or state, or changes the user's databases. Explain the effect, then ask:
+Explain the effect, then ask:
 
-- Anything that changes the source or target server: the grant script (live variants set
-  `REPLICA IDENTITY FULL` and may change table ownership), `wal_level` and the restart it needs,
-  target gflags, dropping FKs or disabling triggers. **The user runs these** with admin
-  credentials; you print the exact commands and what each does.
-- Any `--start-clean`, on `assess-migration`, `export schema` (erases manual schema edits),
-  `import schema` (drops the target schemas with `CASCADE`), `export data` or `import data`.
-- `import data --truncate-tables`, `error-policy-snapshot: stash-and-continue`,
-  `on-primary-key-conflict: IGNORE`: the first deletes data, the other two skip rows silently.
-- `archive changes --policy delete`.
+- Anything that changes the source or target server: grant scripts, server settings and the
+  restarts they need, cluster flags, dropping foreign keys or disabling triggers. **The user
+  runs these** with admin credentials; you print the exact commands and the effects the docs
+  list.
+- Any `--start-clean`. It discards Voyager's state and, on some commands, deletes exported files
+  or target objects. Read `--help` and the page for what it removes on that command.
+- Any option that truncates tables, skips rows, overwrites on conflict or deletes archived
+  changes.
 - Every `initiate cutover …`. A cutover cannot be taken back.
-- `end migration`. It cannot be resumed, and deletes whatever in the export dir is not backed up.
+- `end migration`. It cannot be resumed and removes whatever is not backed up.
 - Upgrading or reinstalling Voyager during a migration.
 
 ## Anti-patterns
 
 | What agents do | Why it breaks | Do this instead |
 |---|---|---|
-| Copy a config template and only fill source/target | The templates enable a local yugabyted control plane and other placeholder sections | Follow the stage-2 procedure in `references/assess-and-plan.md` |
-| Pick the migration flow from the assessment report | The report has no flow recommendation | Ask the user the plan questions; use the report as evidence |
-| Run the live-migration grants "to be safe" during setup | They change production tables (replica identity, ownership) | Assessment needs only the offline grants; run live grants after the flow is chosen |
+| Copy a config template and only fill source/target | Templates can ship optional sections enabled and placeholders set | Read every uncommented line and keep only what the user chose |
+| Pick the migration flow from the assessment report | The flow is the user's decision | Ask the plan questions; use the report as evidence |
+| Run the live-migration grants "to be safe" during setup | They change production tables | Use the assessment-level grants until the flow is chosen |
 | Delete or comment out objects to get a clean analyze-schema report | Silent data or feature loss | Classify each issue; anything beyond a mechanical fix is the user's decision |
-| Re-run a failed command with `--start-clean` | Wipes exported data, edits or target schemas | Read the log first; most commands resume by re-running unchanged |
-| Treat exit code 0 as success | Some runs exit 0 with errors (`failed.sql`, `DONE_WITH_ERRORS`) | Check the success criteria in the phase file |
-| Kill a slow import after one flat poll | Progress moves in batch-sized steps | Use the stuck rule in the phase file |
-| Cut over while a streaming process is down | The cutover stalls, then errors | Confirm every streaming PID is alive first |
-| Pass `--yes` everywhere to avoid hangs | It also approves destructive prompts | Remove each prompt's cause (env vars, explicit flags); use `--yes` only after approval |
+| Re-run a failed command with `--start-clean` | Wipes exported data, edits or target objects | Read the log first; check the docs for whether the command resumes |
+| Treat exit code 0 as success | See "Silent failures" | Check the phase's success criteria from Voyager's own output |
+| Kill a slow job after one flat poll | Progress moves in batch-sized steps | Use the stuck rule in the phase file |
+| Cut over while a streaming process is down | The cutover waits with no error | Confirm every streaming process is alive first |
+| Pass `--yes` everywhere to avoid hangs | It also approves destructive prompts | Remove each prompt's cause; use `--yes` only after approval |
+| State a default, path or field from memory | It may have changed in this release | Read `--help`, the output or the docs page |
 
 ## Checking your own work
 
-Before each gate, confirm the phase's success criteria from evidence you just read (status JSON,
-report files, row counts, `cutover status`), not from what a command printed earlier. If evidence
-is missing, say so in the gate message instead of reporting success.
+Before each gate, confirm the phase's success criteria from evidence you just read (what the
+command printed, the files it wrote, row counts), not from an earlier poll. If evidence is
+missing, say so in the gate message instead of reporting success.

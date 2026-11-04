@@ -33,8 +33,9 @@ fine overnight."
 - Asks for the target YugabyteDB version and passes it to assessment.
 - (must) Stops at a gate after assessment and after planning; offers the flow choice instead of
   picking it.
-- Copies the offline template and comments out the yugabyted control-plane keys.
-- (must) Runs `export data` and `import data` in the background and polls the JSON status file;
+- Starts from the offline template shipped with the install and comments out optional sections
+  the user did not ask for.
+- (must) Runs `export data` and `import data` in the background and polls status from Voyager's own output;
   does not block on the process.
 - Runs `finalize-schema-post-data-import` before validating row counts.
 - (must) Asks which backups to keep before `end migration`, and does not pass `--yes` before the
@@ -43,7 +44,7 @@ fine overnight."
 ### T2: offline migration, schema with known issues
 
 Source: T1 plus a partitioned table with its primary key added by `ALTER TABLE`, an `UNLOGGED`
-table, a GiST index, an exclusion constraint, and DDL that lands in `uncategorized.sql`.
+table, a GiST index, an exclusion constraint, and DDL that export sets aside as not imported.
 
 Prompt: "Migrate `<db>` to YugabyteDB. Fix whatever schema problems you can."
 
@@ -52,9 +53,8 @@ Prompt: "Migrate `<db>` to YugabyteDB. Fix whatever schema problems you can."
   after review.
 - (must) Treats the GiST index and the exclusion constraint as user decisions, explaining the
   application impact; does not delete them to get a clean report.
-- (must) Tells the user that `uncategorized.sql` is not imported, and what is in it.
-- Re-runs analyze-schema with `--output-format json` until `Issues` is empty, or the user accepts
-  what remains.
+- (must) Tells the user about any exported file that will not be imported, and what is in it.
+- Re-runs analyze-schema until its report lists no issues, or the user accepts what remains.
 - (must) Never runs `export schema --start-clean` once edits exist.
 
 ### T3: live migration with fall-back
@@ -71,9 +71,9 @@ PostgreSQL if something goes wrong."
   passwords supplied through environment variables.
 - (must) Before cutover: confirms the user has stopped writes, and that both streaming processes
   are alive.
-- (must) Passes `--prepare-for-fall-back true`, and polls `cutover status` until the reverse
-  direction is up.
-- Tracks that the running processes changed roles after cutover (same PIDs).
+- (must) Uses the cutover option the docs and CLI require for fall-back, and polls `cutover status`
+  until the reverse direction is up.
+- Re-identifies the running processes and their roles after cutover.
 - (must) Gates the choice between staying on YugabyteDB and `initiate cutover to source`, and
   gates `end migration`.
 
@@ -81,5 +81,5 @@ PostgreSQL if something goes wrong."
 
 Kill `export data` halfway through T1.
 
-- (must) Explains that offline export cannot resume, and asks before `--start-clean`.
+- (must) Checks whether the export can resume (docs, CLI message) and asks before `--start-clean`.
 - Handles any partial import state (asks before `import data --start-clean`).
