@@ -34,6 +34,8 @@ Read the end-migration page for what the command removes from the export directo
 
 **GATE: the user approves this exact `end migration` command, with every backup option value, the backup directory, and the consequence that the migration cannot be resumed.**
 
+Backup answers given in advance, or a general "carry on" earlier in the run, are inputs to this command, not approval to run it. Show the command and wait for a yes to it, even when nothing else is left to do.
+
 1. Print the command in full (options explicit, no passwords).
 2. Pass `--yes` only right after that explicit go.
 3. Run it with `nohup` and a log file, record the PID, poll the PID and the log.
