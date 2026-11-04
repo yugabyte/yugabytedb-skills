@@ -38,7 +38,7 @@ Per round:
 Exit: a fresh report lists no issues and no notes about objects left out. The exit code does not tell you this; read the report, and confirm it is newer than your last edit.
 
 Classes:
-- **A, mechanical:** schema-only, no behaviour change, and the known-issues entry gives the workaround. Propose the batch; apply after one approval.
+- **A, mechanical:** schema-only, no behaviour change, and the known-issues entry gives the workaround. Propose the batch as diffs; apply after one approval. If the user pre-approved mechanical fixes, still show the diffs before applying: the approval covers the kind of fix, not the exact edit. The same holds for edits to files you apply by hand, such as a statement removed from `uncategorized.sql`.
 - **B, user decision:** the workaround changes behaviour or data, or is optional (performance recommendations). Draft options, state what the user gives up, and wait.
 - **C, no workaround:** the known-issues entry has none. Stop and give the options: exclude the object, change the source, change the target version, or accept the gap.
 

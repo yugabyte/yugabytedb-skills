@@ -58,7 +58,7 @@ Leave performance and parallelism options at their defaults unless the user asks
 
 ## 6. Finalize, then validate
 
-Order matters: finalize, then count, then end migration.
+Order matters: finalize, then count, then end migration. A count taken before finalize (for example while the finalize gate is open) is a progress check, not the validation: finalize changes what the target holds and can fail, so repeat the counts after it succeeds and report those.
 
 1. **GATE: the user approves `yb-voyager finalize-schema-post-data-import`.** Tell them what it creates (finalize page) and that Voyager cannot undo it.
 2. Compare row counts, read-only, over `psql`:
