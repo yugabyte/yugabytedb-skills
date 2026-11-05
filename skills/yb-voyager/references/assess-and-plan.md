@@ -55,7 +55,7 @@ Ask in this order, one question at a time:
 | Minutes | Back to the original source | Live with fall-back |
 | Minutes | To a separate database; source untouched | Live with fall-forward |
 
-For each flow you offer, state its costs from its docs page (source settings and restarts, what it writes to the source, extra databases, limitations). Never pick for the user. Offer bulk load only when the data is already in files.
+For each flow you offer, state its costs from its docs page (source settings and restarts, what it writes to the source, extra databases, limitations). Add the plan-time checks from `field-notes.md` §1 that apply to the user's source, write rate and flow (for example a peak change rate above what live migration has commonly handled, or schema traits that broke past live migrations), labelled as field experience. Never pick for the user. Offer bulk load only when the data is already in files.
 
 ## 6. Choices that lock in
 

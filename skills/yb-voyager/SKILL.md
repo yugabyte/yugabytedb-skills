@@ -52,6 +52,12 @@ user the docs differ. Never fill a gap from memory.
 
 Read only the reference file for the current phase, plus the flow file the user chose.
 
+`references/field-notes.md` holds what past migrations ran into: rules of thumb (for example
+the change rates live migration has handled), schema traits that cause trouble, and a
+symptom-to-cause table. Read it during planning, before a live data phase, and whenever a run
+is slow, stuck or failing in a way its output does not explain. Present what it says as field
+experience, not as documented limits.
+
 **At every gate**, post this and wait for an explicit yes:
 
 ```
