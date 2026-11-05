@@ -39,6 +39,9 @@ npx skills add yugabyte/yugabytedb-skills -s yb-perf
 
 # YSQL schema review: sharding, indexes, partitions, statistics, workload (deterministic engine)
 npx skills add yugabyte/yugabytedb-skills -s yb-model
+
+# PostgreSQL to YugabyteDB migration with YugabyteDB Voyager, phase by phase with approval gates
+npx skills add yugabyte/yugabytedb-skills -s yb-voyager
 ```
 
 ## Available Skills
@@ -54,6 +57,7 @@ npx skills add yugabyte/yugabytedb-skills -s yb-model
 |`aeon-api`|YugabyteDB Aeon (managed cloud) REST API — scripting and automating cluster lifecycle, database users, network allowlists, backups, VPC peering/private endpoints, and cluster metrics|
 |`yb-perf`|Performance must-checks — the YugabyteDB-specific traps behind a slow app or database, raised latency or a regressed p99, across the SQL layer (slow queries, EXPLAIN (ANALYZE, DIST) plans, pg_stat_statements, lock contention, ASH waits) and the metrics layer (node hotspots, leader and tablet skew, CPU / disk / memory, tablet limits, rejections, master load from Prometheus / YBA), with read-only one-call check scripts and the evidence required before naming a cause|
 |`yb-model`|Offline review of an existing YSQL schema and data model from a captured bundle — sharding, primary keys, indexes, partitions, tablet splits and data quality checked against the schema dump, `pg_stats`, `pg_stat_statements` or a query list and the rest of the evidence by a deterministic rules engine (Python, standard library), with plan replay on the customer's release, a safety pass over its own DDL, and a workload-hygiene section for the application team|
+|`yb-voyager`|PostgreSQL to YugabyteDB migration with YugabyteDB Voyager, orchestrated end to end — setup and version checks, assessment, choosing offline / live / live with fall-back / live with fall-forward, the analyze-schema fix loop, background data export and import with status polling, cutovers and end migration — with an approval gate after every phase and before every irreversible step; links the live Voyager docs instead of copying them. Installed as a Claude Code plugin, it also registers the YugabyteDB docs search MCP server (`https://yugabyte.mcp.kapa.ai`); other agents can add that URL to their MCP settings|
 
 ## Learn More
 
