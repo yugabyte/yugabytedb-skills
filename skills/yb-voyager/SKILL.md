@@ -88,22 +88,31 @@ started on an older one, and the release notes say which.
 
 ## Running Voyager without a terminal
 
-You usually run commands with no TTY, so any prompt hangs or aborts the run. Remove each
-prompt's cause before it happens:
+
+You usually run commands with no terminal, so nobody can answer a prompt: the run exits at it,
+or, rarely, waits silently. Remove each prompt's cause before it happens:
 
 - **Passwords** come only from the environment variables named on the
   [configuration-file page](https://docs.yugabyte.com/stable/yugabyte-voyager/reference/configuration-file/).
-  The user exports them. Check that each is set without printing it. Never write a password
-  into a config file, onto a command line or into chat.
-- **Questions** (continue anyway, include replicas, which option): answer them by setting the
-  matching option up front, after the user decides. If a run stops at a question you did not
-  foresee, stop it, show the user the question, and fix the cause.
+  Each of your commands runs in a fresh shell, so an `export` typed during the session does not
+  carry over. The user either starts the session from a shell where they exported them, or keeps
+  the exports in a file only they edit and you load it at the start of each command
+  (`setup.md` §6). Check that each is set without printing it. Never write a password into a
+  config file, onto a command line or into chat.
+- **Questions** (continue anyway, include replicas, which option): with no terminal, a question
+  usually does not wait. The command exits with the question as its last output. You cannot
+  foresee every question, so before each command read its `--help` and docs page for options
+  that answer one in advance (for example skipping read replicas, or `--start-clean`), ask the
+  user, and set them. If a run still exits at a question, show it to the user and re-run with
+  their answer set as an option. Use `--yes` on that one command only if no option exists and
+  the user approved it.
 - **`--yes`** answers every prompt with yes, destructive ones included. Use it only on a command
   the user has just approved, never as a default.
-- **Long-running commands** (`assess-migration`, `export data`, `import data`, `archive changes`,
-  the reverse-sync commands) run in the background with `nohup`, output to a log file, PID
-  recorded in the progress file. Turn off the progress display if `--help` offers a way. Poll
-  rather than wait.
+- **Long-running commands** (`export data`, `import data`, `archive changes`, the reverse-sync
+  commands) run in the background with `nohup`, output to a log file, PID recorded in the
+  progress file. Turn off the progress display if `--help` offers a way. Poll rather than wait.
+  To stop one, `kill` its PID and confirm it is gone. Then fix the cause and start it again with
+  the same command and export directory.
 - **One run of a command per export dir.** Before starting or restarting one, check that its
   recorded PID is gone.
 - **Config file:** after editing it, run the next real command and read the start of its output;
@@ -123,8 +132,6 @@ Most Voyager problems fail loudly. These do not, so check for them explicitly:
 - **A state that does not advance with no error** (a cutover that stays initiated, a job with a
   live PID and a silent log) usually means a paired process died or a prompt is waiting. Check
   liveness and the log before anything else.
-- **A script that stops at a prompt may have already changed things.** Record what it did up to
-  that point.
 
 ## Never without explicit approval for that exact action
 

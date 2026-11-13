@@ -47,10 +47,16 @@ No target section yet: assessment does not connect to the target. If the source 
 
 ## 6. Passwords
 
-1. Ask the user to export the source password variable named on the configuration-file page, in the shell that runs `yb-voyager`. Target and replica passwords follow in later phases.
-2. Check it is set without printing it: `test -n "$VAR" && echo set`.
-3. If it is not set in your shell, the user starts the session with it exported or runs the command themselves.
-4. Reuse it for `psql` checks through `PGPASSWORD="$VAR"`, which keeps it out of the argument list.
+Each of your commands runs in a fresh shell, so an `export` the user types during the session does not reach later commands. Ask the user which way your shell gets the source password variable named on the configuration-file page:
+
+- **From the environment:** they export it, then start this session from that shell.
+- **From a file:** they put the `export` line in a file only they can read (`chmod 600`), outside the export directory, and give you its path. Start each command that needs a password with `. <file> &&` so it is set in that same shell. Never print or open the file.
+
+Target and replica passwords follow in later phases, the same way.
+
+1. Check it is set without printing it: `test -n "$VAR" && echo set`. Load the file first in the same command if that is the route.
+2. Reuse it for `psql` checks through `PGPASSWORD="$VAR"`, which keeps it out of the argument list.
+3. If neither way works for the user, they run the Voyager commands themselves, and you guide them from the output they paste (never a password).
 
 ## 7. Assessment-level grants
 

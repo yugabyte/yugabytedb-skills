@@ -18,8 +18,8 @@ Docs (fetch for commands, keys, report contents and limitations), all under http
 ## 2. Run the assessment
 
 1. Confirm the source password variable is set (without printing it).
-2. Run `yb-voyager assess-migration --config-file <assessment config>` in the background with `nohup`, a log file and the PID recorded. Do not add `--yes`: its prompts warn about conditions the user must see.
-3. Poll: healthy while the PID is alive and the log grows. If the log ends in a question, stop the run, show the user the question, fix the cause and re-run.
+2. Run the command the assess-migration page gives, with your config file, in the foreground, saving its output to a log file. It usually takes a few minutes: it samples the source's I/O for an interval `--help` names. If your shell would time out sooner, run it in the background like the long-running commands. Do not add `--yes`: its prompts warn about conditions the user must see.
+3. If it exits at a question, show the user the question. Fix the cause, or set the matching option to the user's answer, then re-run.
 4. Success: exit code 0, and the report files the run names in its output or log exist and are non-empty (`test -s`). Record their paths.
 5. If a re-run in the same export directory refuses, read the message. Removing the previous assessment needs `--start-clean`: copy the old report aside and ask first.
 
@@ -50,7 +50,7 @@ Ask in this order, one question at a time:
 
 | Downtime allowed | Rollback after cutover | Flow |
 |---|---|---|
-| Whole export plus import | Restore from backup | Offline |
+| Whole export plus import | Switch back to the source, which Voyager does not change; writes made on YugabyteDB after the switch are not copied back | Offline |
 | Minutes | None | Live |
 | Minutes | Back to the original source | Live with fall-back |
 | Minutes | To a separate database; source untouched | Live with fall-forward |
@@ -84,7 +84,7 @@ Every item changes a production system.
 
 1. Fetch the flow page's "Prepare the source database" and "Prepare the target database" sections, and the grant-script page.
 2. For each step, print the exact command for the user's setup and the effects the docs list, then wait for the user to say it is done.
-3. The grant script may ask questions (for example how the migration user gets table ownership). The user runs it in their own terminal so they can answer. Explain each option's effect from the docs and recommend the least invasive one. If a run stopped partway, treat the source as already changed.
+3. The user runs the grant script, not you. It needs admin credentials, and it asks questions (for example how the migration user gets table ownership) that need someone typing answers. Print the exact command; the user runs it in a terminal outside this session. Before they do, list the questions it asks and each option's effect from the grant-script page, and recommend the least invasive one. If it stops partway (an error, or a question it could not get an answer to), the statements before that point have already run. Ask the user for its output, record what it changed, and read the grant-script page before running it again.
 4. Ask the source major version: the fall-back page may have version-specific steps.
 5. Record every change (server settings, grants, table settings, ownership, cluster flags) in the progress file, so it can be reverted at the end.
 6. Verify each change with a read-only query (for example `SHOW wal_level` for logical decoding).
