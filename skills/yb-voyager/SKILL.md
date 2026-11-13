@@ -88,7 +88,6 @@ started on an older one, and the release notes say which.
 
 ## Running Voyager without a terminal
 
-
 You usually run commands with no terminal, so nobody can answer a prompt: the run exits at it,
 or, rarely, waits silently. Remove each prompt's cause before it happens:
 
