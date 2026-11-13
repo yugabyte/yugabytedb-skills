@@ -13,6 +13,7 @@ Read this when the user chose live migration with fall-forward (a separate Postg
 1. Use the source grant variant the live-fall-forward page gives; fall-forward does not write back to the source.
 2. Ask the user for the source-replica connection details and record them (not the password). The user exports the source-replica password variable named on the configuration-file page.
 3. After cutover, changes are read from YugabyteDB: cross-check column types and the target version against the connector requirements on the live-fall-forward and cutover pages.
+4. Do the fall-back reference's plan-time steps 5 and 6: check from the Voyager host that the `yb_servers()` addresses are reachable, and settle in advance how to answer any prompt the export-from-target process can raise at cutover.
 
 ## Prepare the source-replica
 

@@ -1,6 +1,6 @@
 ---
 name: yb-voyager
-description: Guides a full PostgreSQL to YugabyteDB migration with YugabyteDB Voyager (yb-voyager), phase by phase - setup, assessment, choosing a migration flow (offline, live, live with fall-back, live with fall-forward), schema export and the analyze-schema fix loop, data export and import, cutover and end migration - stopping for the user's approval between phases and before every irreversible step. Use when a user wants to migrate a PostgreSQL database to YugabyteDB, is in the middle of a Voyager migration and wants to continue or recover one, or asks which Voyager migration type fits them. Triggers on yb-voyager, Voyager, assess-migration, export schema, analyze-schema, import schema, export data, import data, get data-migration-report, cutover, initiate cutover, fall-back, fall-forward, source-replica, archive changes, end migration, export-dir, migration assessment report. Not for writing application SQL against YugabyteDB (ysql) or reviewing an existing YugabyteDB schema (yb-model).
+description: Guides a full PostgreSQL to YugabyteDB migration with YugabyteDB Voyager (yb-voyager), phase by phase - setup, assessment, choosing a migration flow (offline, live, live with fall-back, live with fall-forward), schema export and the analyze-schema fix loop, data export and import, cutover and end migration - stopping for the user's approval between phases and before every irreversible step. Use when a user wants to migrate a PostgreSQL database to YugabyteDB, is in the middle of a Voyager migration and wants to continue or recover one, or asks which Voyager migration type fits them. Triggers on yb-voyager, Voyager, assess-migration, export schema, analyze-schema, import schema, export data, import data, get data-migration-report, cutover, initiate cutover, fall-back, iterative cutover, fall-forward, source-replica, archive changes, end migration, export-dir, migration assessment report. Not for writing application SQL against YugabyteDB (ysql) or reviewing an existing YugabyteDB schema (yb-model).
 ---
 
 # YugabyteDB Voyager migration orchestrator
@@ -33,8 +33,6 @@ user the docs differ. Never fill a gap from memory.
 - **Bulk load from files** is a separate workflow: link
   [bulk data load](https://docs.yugabyte.com/stable/yugabyte-voyager/migrate/bulk-data-load/)
   and stop.
-- **Iterative cutover** (repeated fall-back rounds) is not orchestrated here: link
-  [iterative cutover](https://docs.yugabyte.com/stable/yugabyte-voyager/reference/iterative-cutover/).
 
 ## Phases and gates
 
@@ -46,7 +44,7 @@ user the docs differ. Never fill a gap from memory.
 | 4 | Schema: export, analyze-schema fix loop, import | `references/schema.md` | **GATE**: clean analysis, schema imported and verified |
 | 5a | Data, offline flow | `references/data-offline.md` | **GATE**: data imported, finalized, row counts match |
 | 5b | Data, live flows, up to cutover to target | `references/data-live.md` | **GATE** before every cutover |
-| 5c | Live with fall-back: reverse sync, optional cutover to source | `references/fall-back.md` | **GATE**: stay on YugabyteDB, or fall back |
+| 5c | Live with fall-back: reverse sync, optional cutover to source, optional further rounds (iterative cutover) | `references/fall-back.md` | **GATE**: stay on YugabyteDB, fall back for good, or fall back and start another round |
 | 5d | Live with fall-forward: source-replica, optional cutover to it | `references/fall-forward.md` | **GATE**: stay, or switch to the replica |
 | 6 | End migration | `references/end-migration.md` | **GATE**: backups chosen, user confirms the end |
 
