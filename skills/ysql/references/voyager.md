@@ -2,6 +2,8 @@
 
 Voyager is Yugabyte's open-source migration tool. It handles the full migration lifecycle: assessment, schema export/import, and data export/import. This reference covers **assessment** and **schema conversion review** — the steps that determine what needs to change before moving a PostgreSQL (or Oracle/MySQL) database to YugabyteDB.
 
+**Running the migration:** if the `yb-voyager` skill is installed, use it to run Voyager end to end. It handles the flow choice, grants, passwords and approval gates. This reference covers what to review in the assessment report and the exported schema.
+
 Install: follow the [installation guide](https://docs.yugabyte.com/preview/yugabyte-voyager/install-yb-voyager/) (OS packages or Docker). It is not a PyPI package — do not `pip install` it.
 
 ---
@@ -16,11 +18,12 @@ yb-voyager assess-migration \
   --source-db-host   <source-host> \
   --source-db-port   5432 \
   --source-db-user   <user> \
-  --source-db-password <password> \
   --source-db-name   <dbname> \
   --source-db-schema public \
-  --export-dir       ./export-output
+  --export-dir       <export-dir>
 ```
+
+Passwords come from the environment variables named on the [configuration-file page](https://docs.yugabyte.com/stable/yugabyte-voyager/reference/configuration-file/) (for example `SOURCE_DB_PASSWORD` and `TARGET_DB_PASSWORD`); never put one on the command line. Use an absolute `<export-dir>`, one per migration, outside any git repository.
 
 For Oracle: `--source-db-type oracle`. For multiple schemas: comma-separate in `--source-db-schema`.
 
@@ -68,13 +71,12 @@ yb-voyager export schema \
   --source-db-host   <source-host> \
   --source-db-port   5432 \
   --source-db-user   <user> \
-  --source-db-password <password> \
   --source-db-name   <dbname> \
   --source-db-schema public \
-  --export-dir       ./export-output
+  --export-dir       <export-dir>
 ```
 
-Converted DDL is written to `./export-output/schema/`. Review each file before importing to YugabyteDB.
+Converted DDL is written to `<export-dir>/schema/`. Review each file before importing to YugabyteDB.
 
 ---
 
@@ -131,9 +133,8 @@ yb-voyager import schema \
   --target-db-host     <yb-host> \
   --target-db-port     5433 \
   --target-db-user     yugabyte \
-  --target-db-password <password> \
   --target-db-name     <dbname> \
-  --export-dir         ./export-output
+  --export-dir         <export-dir>
 ```
 
 After import, verify with `EXPLAIN (ANALYZE, DIST)` on a sample of the top queries (using representative data) before proceeding to data migration. Any Seq Scan on a table that will have > 100K rows is a schema issue to fix now — not after data is loaded.
@@ -145,10 +146,10 @@ After import, verify with `EXPLAIN (ANALYZE, DIST)` on a sample of the top queri
 After schema is confirmed:
 ```bash
 # Export data from source
-yb-voyager export data --source-db-type postgresql ... --export-dir ./export-output
+yb-voyager export data --source-db-type postgresql ... --export-dir <export-dir>
 
 # Import to YugabyteDB
-yb-voyager import data --target-db-host <yb-host> ... --export-dir ./export-output
+yb-voyager import data --target-db-host <yb-host> ... --export-dir <export-dir>
 ```
 
 Run `ANALYZE` on all tables after data import, before performance testing:
@@ -156,9 +157,4 @@ Run `ANALYZE` on all tables after data import, before performance testing:
 ANALYZE;
 ```
 
-For live cutover (minimal downtime) using change-data-capture:
-```bash
-yb-voyager export data-from-target ...  # CDC-based live migration
-```
-
-Refer to the Voyager documentation for the full live migration workflow: https://docs.yugabyte.com/preview/yugabyte-voyager/migrate/
+Live migration (minimal downtime) needs more than these commands: a flow choice (with or without fall-back or fall-forward), extra grants, and a cutover that cannot be undone. Use the `yb-voyager` skill if it is installed; otherwise follow the live migration workflow in the docs: https://docs.yugabyte.com/stable/yugabyte-voyager/migrate/

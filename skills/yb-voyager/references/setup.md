@@ -61,7 +61,7 @@ Each of your commands runs in a fresh shell, so an `export` the user types durin
 - **From the environment:** they export it, then start this session from that shell.
 - **From a file:** they put the `export` line in a file only they can read (`chmod 600`), outside the export directory, and give you its path. Start each command that needs a password with `. <file> &&` so it is set in that same shell. Never print or open the file.
 
-Once the flow is chosen, `assess-and-plan.md` §7 lists every password the flow needs, set the same way.
+Once the flow is chosen, the plan phase lists every password the flow needs, set the same way.
 
 **Admin connection (optional).** Prep, grants and clean-up need a privileged account. Ask the user whether you should run these SQL steps yourself, after their approval of each one. If yes, they give you the host, port and admin user, with the password in its own variable, provided either way above. Use it only for approved admin steps, through `PGPASSWORD="$VAR" psql`. Suggest a separate admin role for the migration that they drop at the end. If they say no, print each admin statement for them to run. Record the choice (never the password) in the progress file.
 

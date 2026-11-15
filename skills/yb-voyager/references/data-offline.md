@@ -16,8 +16,9 @@ Docs (fetch for commands, flags, status commands and examples):
 ```bash
 mkfifo <migration-dir>/export-data.in
 nohup sleep 86400 > <migration-dir>/export-data.in 2>/dev/null &   # holder; record its PID
-nohup yb-voyager export data --config-file <config> < <migration-dir>/export-data.in > <migration-dir>/export-data.out 2>&1 &
-echo $!
+nohup sh -c 'yb-voyager export data --config-file <config>; echo $? > <migration-dir>/export-data.rc' \
+  < <migration-dir>/export-data.in > <migration-dir>/export-data.out 2>&1 &
+echo $!                                                             # wrapper PID; Voyager's: pgrep -P <it>
 ```
 4. Record each PID, log path and launch time in the progress file.
 5. Verify after a few seconds: the PID is alive (`kill -0 <pid>`) and the log is growing. A live PID with an empty log suggests a prompt.
@@ -34,9 +35,9 @@ Read the status values and counts per table as the file gives them. Partitioned 
 
 A status file is a snapshot. Combine it with the process state.
 
-**Done:** the PID exited with code 0, every table shows a finished status, and every error count is 0. A finished-with-errors status is not success: stop and ask the user, because rows were skipped.
+**Done:** the `.rc` file exists and holds 0, every table shows a finished status, and every error count is 0. A finished-with-errors status is not success: stop and ask the user, because rows were skipped.
 
-**Failed:** the PID is gone with a non-zero exit, or a table is unfinished after the process exited. Quote the exact error line from the log, look it up in the docs or the docs search tool, and report it. Do not work around a safety check (permission, replication, guardrail) by turning it off.
+**Failed:** the `.rc` file holds a non-zero code, or a table is unfinished after the process exited. A PID that is gone with no `.rc` file means the wrapper itself was killed: treat the result as unknown, read the log and the status, and report. Quote the exact error line from the log, look it up in the docs or the docs search tool, and report it. Do not work around a safety check (permission, replication, guardrail) by turning it off.
 
 **Stuck:** the PID is alive and the total count has not moved across 3 polls spaced a few minutes apart. Counts move in batches, so one flat poll means nothing. Read the log for repeating retries or a waiting prompt, then report the evidence. Do not kill a job on a single flat poll.
 
@@ -66,7 +67,7 @@ Order matters: finalize, then count, then end migration. A count taken before fi
    - imported count equals the total and the error count is 0 for every table;
    - target `SELECT count(*)` per table equals the source count.
 3. Compare every sequence's `last_value` on source and target, and give the user the `setval` statement for any mismatch.
-4. If the source schema may have changed during the run, suggest `schema detect-drift` (schema reference).
+4. If the source schema may have changed during the run, suggest `schema detect-drift` (the schema phase covers it).
 5. Report one row per table (source count, target count, errors) plus sequence mismatches. Record "data validated" in the progress file.
 
 **GATE: the user confirms the validation and agrees to move on to end migration.**

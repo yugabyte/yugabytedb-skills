@@ -1,6 +1,6 @@
 # Live migration: data phase, cutover, restart
 
-Read this for every live flow (plain live, fall-back, fall-forward): it covers the long-running processes, polling, cutover and recovery. Also load the fall-back or fall-forward reference when the user chose one of those.
+Read this for every live flow (plain live, fall-back, fall-forward): it covers the long-running processes, polling, cutover and recovery. For fall-back or fall-forward, SKILL.md's phase table loads that flow's file too.
 
 ## 1. Docs to fetch
 
@@ -34,7 +34,7 @@ The importer may start before the exporter; if it says it is waiting, that is ex
    - that it cannot be undone, except through fall-back or fall-forward if that flow was chosen.
 
    Ask when they want to do it. Never start a cutover on your own. Until they choose a time, keep polling and report the lag at each poll.
-7. Run `schema detect-drift` (optional, recommended; see the schema reference). Apply target-side fixes only with the user's approval.
+7. Run `schema detect-drift` (optional, recommended; the schema phase covers it). Apply target-side fixes only with the user's approval.
 8. **GATE: the user confirms application writes to the source are stopped and the exporter shows no new changes.**
 9. Check liveness (section 5).
 10. Initiate cutover (section 7), then poll `cutover status` until the source-to-target direction reports completed.
@@ -77,13 +77,13 @@ Pre-checks:
 2. Every streaming process is alive. If one is dead, the cutover can wait indefinitely without an error. Restart it with the same command first.
 3. The cutover may run pre-checks that connect to the source; set every password variable the flow uses. If a pre-check reports a problem, resolve it with the user; skip a pre-check only with their approval.
 
-Take the cutover command and its required options for the chosen flow from the cutover reference and the flow page. If the CLI rejects the docs' form, follow its message.
+Take the cutover command and its required options for the chosen flow from the cutover docs page and the flow page. If the CLI rejects the docs' form, follow its message.
 
 Then poll `cutover status`. Long in the requested state: check liveness. Completed: move to finalize.
 
 ## 8. Finalize
 
-After cutover completes, run `finalize-schema-post-data-import` (schema reference), before final row counts and before the application switch. `end migration` is a separate gate.
+After cutover completes, run `finalize-schema-post-data-import` (the schema phase covers it), before final row counts and before the application switch. `end migration` is a separate gate.
 
 ## 9. Restart rules
 
@@ -94,4 +94,4 @@ After cutover completes, run `finalize-schema-post-data-import` (schema referenc
 
 ## 10. Where fall-back and fall-forward differ
 
-The flow files cover the extra processes, the cutover options and what happens after cutover. Read the one the user chose.
+The flow files cover the extra processes, the cutover options and what happens after cutover; SKILL.md's phase table loads the one the user chose.

@@ -9,6 +9,9 @@ You run a migration with the user, one phase at a time. This skill owns the orde
 decisions, the gates and the safety rules. It deliberately holds no release-specific facts:
 no flag names beyond the core ones, no defaults, file paths, report fields, status values or
 messages. Those change between Voyager releases, so take them from the sources below every time.
+The exception is `references/field-notes.md`, which records what past migrations ran into,
+numbers included. Treat those as field experience to check against the current docs, never as
+defaults.
 
 You run the commands yourself; the user decides. Read-only checks and status polls need no
 approval: run them and report what you found. Ask first, in the approval format below, before:
@@ -53,15 +56,15 @@ user the docs differ. Never fill a gap from memory.
 |---|---|---|---|
 | 1 | Setup: install and version check, export dir, assessment config, passwords, assessment grants | `references/setup.md` | Voyager verified, source reachable as the migration user |
 | 2 | Assess: run `assess-migration`, present the report | `references/assess-and-plan.md` | **GATE**: user has seen the findings and sizing |
-| 3 | Plan: choose the flow, write the flow's config, prepare source and target | `references/assess-and-plan.md` | **GATE**: flow chosen, prep done and verified, target DB created |
+| 3 | Plan: choose the flow, write the flow's config, prepare source and target | `references/assess-and-plan.md`, `references/field-notes.md` | **GATE**: flow chosen, prep done and verified, target DB created |
 | 4 | Schema: export, analyze-schema fix loop, import | `references/schema.md` | **GATE**: clean analysis, schema imported and verified |
-| 5a | Data, offline flow | `references/data-offline.md` | **GATE**: data imported, finalized, row counts match |
-| 5b | Data, live flows, up to cutover to target | `references/data-live.md` | **GATE** before every cutover |
-| 5c | Live with fall-back: reverse sync, optional cutover to source, optional further rounds (iterative cutover) | `references/fall-back.md` | **GATE**: stay on YugabyteDB, fall back for good, or fall back and start another round |
-| 5d | Live with fall-forward: source-replica, optional cutover to it | `references/fall-forward.md` | **GATE**: stay, or switch to the replica |
+| 5a | Data, offline flow | `references/data-offline.md`, `references/schema.md` (finalize, drift check) | **GATE**: data imported, finalized, row counts match |
+| 5b | Data, live flows, up to cutover to target | `references/data-live.md`, `references/schema.md` (finalize, drift check) | **GATE** before every cutover |
+| 5c | Live with fall-back: reverse sync, optional cutover to source, optional further rounds (iterative cutover) | `references/fall-back.md`, with the 5b files | **GATE**: stay on YugabyteDB, fall back for good, or fall back and start another round |
+| 5d | Live with fall-forward: source-replica, optional cutover to it | `references/fall-forward.md`, with the 5b files | **GATE**: stay, or switch to the replica |
 | 6 | End migration | `references/end-migration.md` | **GATE**: backups chosen, user confirms the end |
 
-Read only the reference file for the current phase, plus the flow file the user chose.
+Load only the files listed for the current phase. The reference files name other phases ("the live phase", "the schema phase") but never send you to another reference file; this table decides what to load.
 
 `references/field-notes.md` holds what past migrations ran into: rules of thumb (for example
 the change rates live migration has handled), schema traits that cause trouble, and a
@@ -95,7 +98,8 @@ Silence, or a reply about something else, is not a yes.
 ## Progress file
 
 Keep `<export-dir>/agent-progress.md`, and update it after every command that changes state. It
-lets a new session pick up where the last one stopped:
+lets a new session pick up where the last one stopped. `end migration` can remove it, so copy it
+out of the export directory before that gate (`references/end-migration.md` §1). It holds:
 
 - Voyager version recorded at setup, the source and target hosts (no passwords), the config file path
 - the chosen flow and why, plus every user decision
@@ -132,8 +136,14 @@ and dies, unless you give it an input it can wait on. Handle passwords and quest
      ```
      mkfifo <dir>/<name>.in
      nohup sleep 86400 > <dir>/<name>.in 2>/dev/null &   # holds the pipe open; record its PID
-     nohup yb-voyager <command> --config-file <config> < <dir>/<name>.in > <dir>/<name>.log 2>&1 &
+     nohup sh -c 'yb-voyager <command> --config-file <config>; echo $? > <dir>/<name>.rc' \
+       < <dir>/<name>.in > <dir>/<name>.log 2>&1 &
+     echo $!                                              # the wrapper's PID
      ```
+     The wrapper writes Voyager's exit code to `<name>.rc` when it ends. Each command runs in a
+     fresh shell, so this file is the only way to know the exit code later. Record Voyager's own
+     PID too: `pgrep -P <wrapper PID>`. A run is finished when `<name>.rc` exists; its number is
+     the exit code.
   3. Poll. When the PID is alive and the log ends in a question (for example `[Y/N]:`), show
      the user the question word for word and what each answer does. Wait for their answer, then
      send it: `echo <answer> > <dir>/<name>.in`. Never answer a question yourself.
@@ -152,11 +162,20 @@ and dies, unless you give it an input it can wait on. Handle passwords and quest
     terminal, in `tmux` or `screen` if they have one so it survives a closed window. Poll its
     log and the export directory yourself, and tell them how to answer any question it asks.
   - With no shell at all, print each command and work from the output the user pastes.
+- **Grant scripts** (and any psql script that asks questions): a grant script takes most inputs as
+  psql variables (`-v`), which you set from the user's answers. It also asks at least one question
+  while running (for example how the migration user gets table ownership). Before running it, read
+  the script and the grant-script page for every question it asks. Explain each option's effect,
+  recommend the least invasive one, and get the user's choice. Run it with `-f` and the answers
+  piped on its input (with `-f`, psql reads `\prompt` answers from standard input), for example
+  `printf '<choice>\n' | psql … -f <script>`. If it stops partway (an error, or a question you did
+  not foresee), the statements before that point have already run. Record what it changed from its
+  output, and read the page before running it again.
 - **`--yes`** answers every prompt with yes, destructive ones included. Use it only on a command
   the user has just approved, never as a default.
 - **Background runs:** record each command, PID and log in the progress file. Turn off the
-  progress display if `--help` offers a way. Poll rather than wait. To stop a run, `kill` its PID
-  and confirm it is gone. Then fix the cause and start it again with the same command and export
+  progress display if `--help` offers a way. Poll rather than wait. To stop a run, `kill`
+  Voyager's PID (not only the wrapper's) and confirm it is gone. Then fix the cause and start it again with the same command and export
   directory.
 - **One run of a command per export dir.** Before starting or restarting one, check that its
   recorded PID is gone.
