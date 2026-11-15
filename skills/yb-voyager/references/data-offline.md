@@ -9,16 +9,16 @@ Docs (fetch for commands, flags, status commands and examples):
 
 ## 1. Launch both jobs in the background
 
-1. Confirm the source and target password variables are set, without printing them. A missing one becomes a prompt that hangs the job.
+1. Confirm the source and target password variables are set, without printing them. A missing one becomes a password question.
 2. Confirm no other run of the same command is active on this export directory (PIDs in the progress file).
-3. Launch `export data`, then `import data`, each with the flow's config file, output redirected to a log file, progress display off if `--help` offers it:
+3. Launch `export data`, then `import data`, each with the flow's config file, its input from a held-open pipe and its output to a log file (SKILL.md, "Running Voyager without a terminal"). Turn the progress display off if `--help` offers it:
 
 ```bash
-nohup yb-voyager export data --config-file <config> > <migration-dir>/export-data.out 2>&1 &
+mkfifo <migration-dir>/export-data.in
+nohup sleep 86400 > <migration-dir>/export-data.in 2>/dev/null &   # holder; record its PID
+nohup yb-voyager export data --config-file <config> < <migration-dir>/export-data.in > <migration-dir>/export-data.out 2>&1 &
 echo $!
 ```
-
-   Do not use `screen` or `tmux`; you cannot read them.
 4. Record each PID, log path and launch time in the progress file.
 5. Verify after a few seconds: the PID is alive (`kill -0 <pid>`) and the log is growing. A live PID with an empty log suggests a prompt.
 

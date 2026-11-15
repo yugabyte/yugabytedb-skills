@@ -1,6 +1,6 @@
 # Assess and plan: assessment, flow choice, flow config, prep
 
-Read this after setup is done and before any schema work. It covers running `assess-migration`, presenting the report, choosing the flow with the user, writing the flow's config, and the prep the user runs on source and target.
+Read this after setup is done and before any schema work. It covers running `assess-migration`, presenting the report, choosing the flow with the user, writing the flow's config, and the prep on source and target.
 
 Docs (fetch for commands, keys, report contents and limitations), all under https://docs.yugabyte.com/stable/yugabyte-voyager/:
 
@@ -18,8 +18,8 @@ Docs (fetch for commands, keys, report contents and limitations), all under http
 ## 2. Run the assessment
 
 1. Confirm the source password variable is set (without printing it).
-2. Run the command the assess-migration page gives, with your config file, in the foreground, saving its output to a log file. It usually takes a few minutes: it samples the source's I/O for an interval `--help` names. If your shell would time out sooner, run it in the background like the long-running commands. Do not add `--yes`: its prompts warn about conditions the user must see.
-3. If it exits at a question, show the user the question. Fix the cause, or set the matching option to the user's answer, then re-run.
+2. Run the command the assess-migration page gives, with your config file, in the background with its input from a pipe (SKILL.md, "Running Voyager without a terminal"). It usually takes a few minutes: it samples the source's I/O for an interval `--help` names. Do not add `--yes`: its questions warn about conditions the user must see.
+3. Expect questions. A missing target version is one, so set it in the config. Others warn about the source, for example missing query statistics or no I/O seen during sampling. Show each to the user word for word with what it means for the report. Send their answer through the pipe, or stop the run if they want to fix the cause first.
 4. Success: exit code 0, and the report files the run names in its output or log exist and are non-empty (`test -s`). Record their paths.
 5. If a re-run in the same export directory refuses, read the message. Removing the previous assessment needs `--start-clean`: copy the old report aside and ask first.
 
@@ -78,13 +78,13 @@ Record the choices in the progress file.
 6. Verify: no placeholder or password value is left (`grep -n '<' <file>`, `grep -n -i password <file>`). The first command that loads the file validates it.
 7. Record the file path in the progress file.
 
-## 8. Flow-specific prep (the user runs it)
+## 8. Flow-specific prep
 
 Every item changes a production system.
 
 1. Fetch the flow page's "Prepare the source database" and "Prepare the target database" sections, and the grant-script page.
-2. For each step, print the exact command for the user's setup and the effects the docs list, then wait for the user to say it is done.
-3. The user runs the grant script, not you. It needs admin credentials, and it asks questions (for example how the migration user gets table ownership) that need someone typing answers. Print the exact command; the user runs it in a terminal outside this session. Before they do, list the questions it asks and each option's effect from the grant-script page, and recommend the least invasive one. If it stops partway (an error, or a question it could not get an answer to), the statements before that point have already run. Ask the user for its output, record what it changed, and read the grant-script page before running it again.
+2. For each step, show the exact command for the user's setup and the effects the docs list. After the user's yes, run SQL steps through the admin connection. Steps that need a restart, a managed-service setting, a cluster flag or `sudo` are the user's: give them the exact step and wait for them to say it is done (SKILL.md, approval list).
+3. The grant script takes most inputs as psql variables (`-v`), which you set from the user's answers. It also asks at least one question while running (for example how the migration user gets table ownership). Before running it, read the script and the grant-script page for every question it asks. Explain each option's effect, recommend the least invasive one, and get the user's choice. Run it with `-f` and the answers piped on its input (with `-f`, psql reads `\prompt` answers from standard input), for example `printf '<choice>\n' | psql … -f <script>`. If it stops partway (an error, or a question you did not foresee), the statements before that point have already run. Record what it changed from its output, and read the page before running it again.
 4. Ask the source major version: the fall-back page may have version-specific steps.
 5. Record every change (server settings, grants, table settings, ownership, cluster flags) in the progress file, so it can be reverted at the end.
 6. Verify each change with a read-only query (for example `SHOW wal_level` for logical decoding).

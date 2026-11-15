@@ -38,14 +38,14 @@ Backup answers given in advance, or a general "carry on" earlier in the run, are
 
 1. Print the command in full (options explicit, no passwords).
 2. Pass `--yes` only right after that explicit go.
-3. Run it with `nohup` and a log file, record the PID, poll the PID and the log.
+3. Run it with `nohup`, a held-open input pipe and a log file (SKILL.md, "Running Voyager without a terminal"). Record the PID, and poll the PID and the log.
 4. Verify: exit code 0, the backup directory holds what the user chose, and the export directory matches what the page says remains. Report both.
 
 If it fails partway, read the page for whether it can be re-run, and re-run the same command if so. Do not delete anything by hand. If the same error repeats, quote the log line and ask the user.
 
-## 5. Offer the clean-up the user runs
+## 5. Offer the clean-up
 
-Print the exact statements and say what each changes; the user runs them with admin credentials.
+Show the exact statements and say what each changes. After the user's yes, run the SQL ones through the admin connection, or the user runs them if there is none. Reverting cluster flags or settings that need a restart is the user's step (SKILL.md, approval list).
 
 1. Revert every source and target change recorded in the progress file (cluster flags, table settings, server settings), using the docs for the statements and noting any that need a restart. If the old value was not recorded, the user must look it up.
 2. Drop or keep the migration user on source and target, using the docs' cleanup SQL. Dropping is irreversible and fails while it still owns objects.

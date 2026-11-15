@@ -11,7 +11,7 @@ Read this when the user chose live migration with fall-back (target changes stre
 ## Plan-time decisions
 
 1. Choose fall-back before the grant script runs: the fall-back variant grants the write access the reverse stream needs. If the user ran the plain live variant and now wants fall-back, they re-run the script with the fall-back variant before cutover.
-2. The user runs the grant script (it may ask questions and needs a privileged account). Print the command and the effects the page lists, then wait. **GATE: the user approves running the fall-back grant variant.**
+2. Build the fall-back grant variant's command and its answers as `assess-and-plan.md` §8 step 3 describes. Show the command and the effects the page lists. **GATE: the user approves running the fall-back grant variant.** Then run it through the admin connection, or the user runs it if there is none.
 3. Read the cutover reference for the connector used to read changes from YugabyteDB after cutover and its version requirements. If the target does not meet them, present the alternatives and their limitations from the docs; the user decides.
 4. Cross-check column types against the connector's limitation list on the live-fall-back page.
 5. Check that the reverse stream can reach YugabyteDB the way its connector connects. The default connector reconnects to the addresses `SELECT host, port FROM yb_servers()` returns, not the address in the config. From the Voyager host, run that query and test a connection to one returned `host:port`. If it is unreachable (a container hostname, a private IP behind NAT, an internal port), the reverse exporter dies at cutover with no node available. The user fixes the advertised address before cutover.
@@ -23,7 +23,7 @@ Read this when the user chose live migration with fall-back (target changes stre
 Run `SHOW server_version_num` on the source and read the live-fall-back page for steps that depend on the PostgreSQL version (for example how foreign keys and triggers are handled while changes are applied back to the source).
 
 - If the page offers options, present each with its effect on the source and let the user pick.
-- **GATE: the user approves the chosen option and runs it themselves (admin credentials).**
+- **GATE: the user approves the chosen option's exact statements.** Run them through the admin connection, or the user runs them if there is none.
 - Record anything removed or disabled on the source, so it is restored after fall-back.
 
 ## Cutover to the target
@@ -45,7 +45,7 @@ Reverse streaming keeps running until the migration ends. Ask the user:
    1. **GATE: the user confirms application writes to YugabyteDB are stopped and approves the exact `initiate cutover to source` command, including whether it starts another round.**
    2. Check every reverse process is alive, then run `yb-voyager initiate cutover to source` with the options the cutover reference gives, plus the restart option only if the user chose another round. Pass `--yes` only after the user's go.
    3. Poll `cutover status` until the target-to-source direction reports completed.
-   4. Restore on the source whatever the version-specific step removed, using the live-fall-back page. The user runs the statements. **GATE: the user approves the restore statements.**
+   4. Restore on the source whatever the version-specific step removed, using the live-fall-back page. **GATE: the user approves the restore statements.** Run them through the admin connection, or the user runs them if there is none.
    5. Verify row counts on the source and switch the application back. Then go to end migration if the fall-back was final, or continue with the next section.
 
 ## Iterative cutover (repeated rounds)

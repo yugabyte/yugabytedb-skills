@@ -10,6 +10,13 @@ decisions, the gates and the safety rules. It deliberately holds no release-spec
 no flag names beyond the core ones, no defaults, file paths, report fields, status values or
 messages. Those change between Voyager releases, so take them from the sources below every time.
 
+You run the commands yourself; the user decides. Read-only checks and status polls need no
+approval: run them and report what you found. Before any command that changes the source, the
+target or Voyager's state, show the exact command and its effect, and run it only after the
+user's yes (the approval list below). Tell the user each command you start, with its PID and
+log. The user does only what you cannot: host restarts, managed-service and cluster settings,
+`sudo`, and admin SQL when they have not given you an admin connection.
+
 ## Where facts come from
 
 1. **What the command prints and the files it writes.** Read the output, the log and every
@@ -40,7 +47,7 @@ user the docs differ. Never fill a gap from memory.
 |---|---|---|---|
 | 1 | Setup: install and version check, export dir, assessment config, passwords, assessment grants | `references/setup.md` | Voyager verified, source reachable as the migration user |
 | 2 | Assess: run `assess-migration`, present the report | `references/assess-and-plan.md` | **GATE**: user has seen the findings and sizing |
-| 3 | Plan: choose the flow, write the flow's config, prepare source and target | `references/assess-and-plan.md` | **GATE**: flow chosen, prep done by the user, target DB created |
+| 3 | Plan: choose the flow, write the flow's config, prepare source and target | `references/assess-and-plan.md` | **GATE**: flow chosen, prep done and verified, target DB created |
 | 4 | Schema: export, analyze-schema fix loop, import | `references/schema.md` | **GATE**: clean analysis, schema imported and verified |
 | 5a | Data, offline flow | `references/data-offline.md` | **GATE**: data imported, finalized, row counts match |
 | 5b | Data, live flows, up to cutover to target | `references/data-live.md` | **GATE** before every cutover |
@@ -79,7 +86,7 @@ lets a new session pick up where the last one stopped:
 - the current phase and the last gate passed
 - schema fixes applied (file, object, change, approved by the user)
 - background jobs: command, PID, log file, start time
-- every change the user made to source or target, so it can be reverted at the end
+- every change made to source or target (by you or the user), so it can be reverted at the end
 
 **Resuming:** read the progress file, run `yb-voyager version` and compare it with the recorded
 version, check which background PIDs are alive, and poll status before running anything. If the
@@ -88,8 +95,8 @@ started on an older one, and the release notes say which.
 
 ## Running Voyager without a terminal
 
-You usually run commands with no terminal, so nobody can answer a prompt: the run exits at it,
-or, rarely, waits silently. Remove each prompt's cause before it happens:
+You run commands with no terminal. A command that asks a question reads the end of its input
+and dies, unless you give it an input it can wait on. Handle passwords and questions this way:
 
 - **Passwords** come only from the environment variables named on the
   [configuration-file page](https://docs.yugabyte.com/stable/yugabyte-voyager/reference/configuration-file/).
@@ -98,20 +105,33 @@ or, rarely, waits silently. Remove each prompt's cause before it happens:
   the exports in a file only they edit and you load it at the start of each command
   (`setup.md` §6). Check that each is set without printing it. Never write a password into a
   config file, onto a command line or into chat.
-- **Questions** (continue anyway, include replicas, which option): with no terminal, a question
-  usually does not wait. The command exits with the question as its last output. You cannot
-  foresee every question, so before each command read its `--help` and docs page for options
-  that answer one in advance (for example skipping read replicas, or `--start-clean`), ask the
-  user, and set them. If a run still exits at a question, show it to the user and re-run with
-  their answer set as an option. Use `--yes` on that one command only if no option exists and
-  the user approved it.
+- **Questions** (continue anyway, include replicas, which target version, which option). You
+  cannot foresee all of them, so:
+  1. Before each command, read its `--help` and docs page for options that answer a question in
+     advance (a target version, skipping read replicas, `--start-clean`). Ask the user and set
+     them.
+  2. Run every Voyager command except read-only ones (`version`, `--help`, reports, status) in
+     the background with its input from a pipe that stays open, so an unforeseen question waits
+     instead of killing the run:
+     ```
+     mkfifo <dir>/<name>.in
+     nohup sleep 86400 > <dir>/<name>.in 2>/dev/null &   # holds the pipe open; record its PID
+     nohup yb-voyager <command> --config-file <config> < <dir>/<name>.in > <dir>/<name>.log 2>&1 &
+     ```
+  3. Poll. When the PID is alive and the log ends in a question (for example `[Y/N]:`), show
+     the user the question word for word and what each answer does. Wait for their answer, then
+     send it: `echo <answer> > <dir>/<name>.in`. Never answer a question yourself.
+  4. When the run ends, kill the holder PID and remove the pipe.
+
+  Processes Voyager starts by itself (the reverse-sync processes after a cutover) do not read
+  your pipe, so a question there kills them. Settle those answers before cutover
+  (`references/fall-back.md`, plan-time step 6).
 - **`--yes`** answers every prompt with yes, destructive ones included. Use it only on a command
   the user has just approved, never as a default.
-- **Long-running commands** (`export data`, `import data`, `archive changes`, the reverse-sync
-  commands) run in the background with `nohup`, output to a log file, PID recorded in the
-  progress file. Turn off the progress display if `--help` offers a way. Poll rather than wait.
-  To stop one, `kill` its PID and confirm it is gone. Then fix the cause and start it again with
-  the same command and export directory.
+- **Background runs:** record each command, PID and log in the progress file. Turn off the
+  progress display if `--help` offers a way. Poll rather than wait. To stop a run, `kill` its PID
+  and confirm it is gone. Then fix the cause and start it again with the same command and export
+  directory.
 - **One run of a command per export dir.** Before starting or restarting one, check that its
   recorded PID is gone.
 - **Config file:** after editing it, run the next real command and read the start of its output;
@@ -137,9 +157,13 @@ Most Voyager problems fail loudly. These do not, so check for them explicitly:
 Explain the effect, then ask:
 
 - Anything that changes the source or target server: grant scripts, server settings and the
-  restarts they need, cluster flags, dropping foreign keys or disabling triggers. **The user
-  runs these** with admin credentials; you print the exact commands and the effects the docs
-  list.
+  restarts they need, cluster flags, dropping foreign keys or disabling triggers. Show the exact
+  commands and the effects the docs list. After the user's yes:
+  - Run SQL steps yourself through the admin connection (`references/setup.md` §6). If the user
+    gave none, print the SQL for them to run.
+  - The user does restarts, managed-service parameter changes, cluster flags and anything that
+    needs `sudo`. Run one of these yourself only if you already have that access and the user
+    approves that exact step.
 - Any `--start-clean`. It discards Voyager's state and, on some commands, deletes exported files
   or target objects. Read `--help` and the page for what it removes on that command.
 - Any option that truncates tables, skips rows, overwrites on conflict or deletes archived

@@ -17,10 +17,10 @@ Read this when the user chose live migration with fall-forward (a separate Postg
 
 ## Prepare the source-replica
 
-The user prepares the source-replica; it is a separate PostgreSQL the agent does not administer.
+The source-replica is a separate PostgreSQL. Ask the user whether you get an admin connection to it, the same way as for the source (`setup.md` §6).
 
 1. Follow the page's steps for the source-replica user and schema. The page says which objects to leave out until after cutover.
-2. Print each command and its effect; the user runs the ones that need admin credentials.
+2. Show each command and its effect. After the user's yes, run them through the source-replica admin connection, or the user runs them if there is none.
 3. **GATE: the user confirms the source-replica schema is loaded as the page describes and the connection works.**
 
 ## Start the source-replica importer before cutover
@@ -43,5 +43,5 @@ After cutover, read the live-fall-forward page for which processes run now. Re-i
 2. **GATE: the user confirms application writes to YugabyteDB are stopped and approves `initiate cutover to source-replica`.**
 3. Check the reverse processes are alive, then run `yb-voyager initiate cutover to source-replica` with the options the cutover reference gives. Pass `--yes` only after the user's go.
 4. Poll `cutover status` until the source-replica direction reports completed.
-5. On the source-replica, create what was left out before cutover and re-enable what was disabled, per the page. **GATE: the user approves these statements and runs them with admin credentials.**
+5. On the source-replica, create what was left out before cutover and re-enable what was disabled, per the page. **GATE: the user approves these statements.** Run them through the source-replica admin connection, or the user runs them if there is none.
 6. Verify row counts on the source-replica, switch the application, then go to end migration.

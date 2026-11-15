@@ -11,7 +11,7 @@ This file adds only order, gates and failure handling.
 
 ## 2. Processes
 
-Run each long-running command in its own background shell with `nohup`, its own log and the same export directory. Record each PID and log path. Turn off the progress display if `--help` offers it.
+Run each long-running command in its own background shell with `nohup`, its own held-open input pipe and log (SKILL.md, "Running Voyager without a terminal"), and the same export directory. Record each PID and log path. Turn off the progress display if `--help` offers it.
 
 | Process | Command | Ends |
 |---|---|---|
@@ -23,7 +23,7 @@ The importer may start before the exporter; if it says it is waiting, that is ex
 
 ## 3. Ordered steps
 
-1. Confirm with the user that the flow's source and target prep is done and the schema is imported. The user runs anything that changes the source.
+1. Check the flow's source and target prep is done (the progress file and read-only queries) and the schema is imported. Anything that changes the source goes through the approval list in SKILL.md.
 2. Start the exporter. Treat its table list as fixed once it has run.
 3. Start the importer, with only the flags the live page gives for it.
 4. Decide on archiving (section 6).

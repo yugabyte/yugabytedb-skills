@@ -54,6 +54,8 @@ Each of your commands runs in a fresh shell, so an `export` the user types durin
 
 Target and replica passwords follow in later phases, the same way.
 
+**Admin connection (optional).** Prep, grants and clean-up need a privileged account. Ask the user whether you should run these SQL steps yourself, after their approval of each one. If yes, they give you the host, port and admin user, with the password in its own variable, provided either way above. Use it only for approved admin steps, through `PGPASSWORD="$VAR" psql`. Suggest a separate admin role for the migration that they drop at the end. If they say no, print each admin statement for them to run. Record the choice (never the password) in the progress file.
+
 1. Check it is set without printing it: `test -n "$VAR" && echo set`. Load the file first in the same command if that is the route.
 2. Reuse it for `psql` checks through `PGPASSWORD="$VAR"`, which keeps it out of the argument list.
 3. If neither way works for the user, they run the Voyager commands themselves, and you guide them from the output they paste (never a password).
@@ -62,9 +64,9 @@ Target and replica passwords follow in later phases, the same way.
 
 Assessment needs the offline (non-live) grant level only. The live variants change production tables, so they wait until the flow is chosen.
 
-1. Create the migration user first if it does not exist (migrate-steps page, "Prepare the source database"). The user runs it.
-2. Fetch the grant-script page and build the offline-level command for the user's database, user and schema list. Print it; the user runs it with admin credentials.
-3. Tell the user the effects the page lists for that level, then wait.
+1. Create the migration user first if it does not exist (migrate-steps page, "Prepare the source database").
+2. Fetch the grant-script page and build the offline-level command for the user's database, user and schema list.
+3. Show both commands and the effects the page lists for that level. After the user's yes, run them through the admin connection, or print them for the user if there is none.
 
 ## 8. Read-only checks
 
