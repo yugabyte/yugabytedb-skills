@@ -17,6 +17,11 @@ Docs (fetch each page for the exact commands, keys and values; this file only ad
 3. If the install is older, ask the user whether to upgrade now, before the first migration command. Never upgrade mid-migration.
 4. If the export directory already holds a migration, do not upgrade. If the installed version refuses to continue it, the choices are the version that started it or a new export directory. Both are the user's call.
 5. Record the version in the progress file and re-check it at the start of each phase.
+6. Check how your shell runs Voyager (SKILL.md, "Running Voyager without a terminal"):
+   - `command -v mkfifo` finds it;
+   - a background process outlives the command that started it. Run `nohup sleep 300 >/dev/null 2>&1 & echo $!`, then in a separate later command `kill -0 <PID> && echo alive`, then `kill <PID>`.
+
+   Record both results in the progress file. If either fails, use the fallback in that section.
 
 ## 2. Dependencies
 
@@ -27,6 +32,8 @@ Docs (fetch each page for the exact commands, keys and values; this file only ad
 ## 3. Docker
 
 If the user runs Voyager in Docker, read the install page's Docker section for how config files, flags and host paths reach the container. Mount every host path the config references. If the config file cannot be used that way, pass full CLI flags on every command and note it in the progress file.
+
+The input pipe reaches Voyager only if the container gets standard input. Use `docker run -i` without `-t`: with `-t`, Docker refuses a pipe with "the input device is not a TTY". If the install's wrapper script passes `-it`, tell the user and use a copy of it with `-i` only.
 
 ## 4. Export directory
 

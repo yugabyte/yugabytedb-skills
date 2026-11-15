@@ -126,6 +126,16 @@ and dies, unless you give it an input it can wait on. Handle passwords and quest
   Processes Voyager starts by itself (the reverse-sync processes after a cutover) do not read
   your pipe, so a question there kills them. Settle those answers before cutover
   (`references/fall-back.md`, plan-time step 6).
+- **If your shell cannot do this** (the setup check in `references/setup.md` §1 found no
+  `mkfifo`, or background processes die when your command ends, as in some sandboxes):
+  - Commands that finish within one of your commands (assess, the grant script): run them in
+    the foreground with the user's chosen answers piped in order, for example
+    `printf 'Y\nN\n' | yb-voyager …`. An unforeseen question then ends the run with the
+    question as its last output. Show it to the user and re-run with their answer added.
+  - Long runs (export, import, archive): give the user the exact command to start in their own
+    terminal, in `tmux` or `screen` if they have one so it survives a closed window. Poll its
+    log and the export directory yourself, and tell them how to answer any question it asks.
+  - With no shell at all, print each command and work from the output the user pastes.
 - **`--yes`** answers every prompt with yes, destructive ones included. Use it only on a command
   the user has just approved, never as a default.
 - **Background runs:** record each command, PID and log in the progress file. Turn off the
