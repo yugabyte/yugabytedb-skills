@@ -26,7 +26,7 @@ Find where Voyager writes its own logs from the command output or the docs, and 
 
 ## 2. Poll status
 
-Every few minutes (scale to data size), run the status commands the docs give for offline export and import. Prefer JSON output; read the file the command says it wrote, since it may print only a path. Each call overwrites it.
+Every few minutes (scale to data size), run `yb-voyager export data status` and `yb-voyager import data status` (confirm their options with `--help`). Prefer JSON output; read the file the command says it wrote, since it may print only a path. Each call overwrites it.
 
 Read the status values and counts per table as the file gives them. Partitioned tables may roll up into a parent row, so a missing child row is not a failure by itself.
 

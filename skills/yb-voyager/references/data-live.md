@@ -28,12 +28,18 @@ The importer may start before the exporter; if it says it is waiting, that is ex
 3. Start the importer, with only the flags the live page gives for it.
 4. Decide on archiving (section 6).
 5. Poll (section 4) until the snapshot is imported for every table and the change lag is near zero and stays there.
-6. Run `schema detect-drift` (optional, recommended; see the schema reference). Apply target-side fixes only with the user's approval.
-7. **GATE: the user confirms application writes to the source are stopped and the exporter shows no new changes.**
-8. Check liveness (section 5).
-9. Initiate cutover (section 7), then poll `cutover status` until the source-to-target direction reports completed.
-10. Run finalize, validate row counts with the user, then switch the application.
-11. Verify: cutover status is completed, the exporter and importer exited (plain live), finalize succeeded. Record the outcome.
+6. Tell the user cutover is possible now; do not wait for them to ask. Say:
+   - what it involves: they stop application writes, you cut over, then finalize and validate;
+   - roughly how long writes stay stopped, from the current lag and the finalize step;
+   - that it cannot be undone, except through fall-back or fall-forward if that flow was chosen.
+
+   Ask when they want to do it. Never start a cutover on your own. Until they choose a time, keep polling and report the lag at each poll.
+7. Run `schema detect-drift` (optional, recommended; see the schema reference). Apply target-side fixes only with the user's approval.
+8. **GATE: the user confirms application writes to the source are stopped and the exporter shows no new changes.**
+9. Check liveness (section 5).
+10. Initiate cutover (section 7), then poll `cutover status` until the source-to-target direction reports completed.
+11. Run finalize, validate row counts with the user, then switch the application.
+12. Verify: cutover status is completed, the exporter and importer exited (plain live), finalize succeeded. Record the outcome.
 
 ## 4. Polling
 

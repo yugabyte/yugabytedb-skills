@@ -76,7 +76,9 @@ Record the choices in the progress file.
 4. Check the keys that encode the flow (export type, fall-back option) against the flow page.
 5. Keep passwords, `--yes` and `--start-clean` out of the file.
 6. Verify: no placeholder or password value is left (`grep -n '<' <file>`, `grep -n -i password <file>`). The first command that loads the file validates it.
-7. Record the file path in the progress file.
+7. Show the user the file's path and contents, and ask them to check the connections, schema and table lists, and the flow options before any command uses it.
+8. List every password the flow needs in one message, with the variable names from the configuration-file page: source, target, source-replica (fall-forward), and the admin connection for each database you will change. Ask the user to set them all now, the same way as the source password (`setup.md` §6). Check each is set without printing it.
+9. Record the file path and the password variable names (never values) in the progress file.
 
 ## 8. Flow-specific prep
 
@@ -91,7 +93,7 @@ Every item changes a production system.
 
 ## 9. Target database and sizing
 
-1. If the report recommends colocated tables, the target database must be created colocated, and that cannot change later. The user creates it (or confirms an existing one) after seeing the report. Verify colocation with the query the docs give.
+1. If the report recommends colocated tables, the target database must be created colocated, and that cannot change later. After the user has seen the report, ask (approval format in SKILL.md) to create it, colocated or not as the report recommends, or let them name an existing one. Create it through the target connection after their yes. Verify colocation with the query the docs give.
 2. Never answer an `import schema` prompt about colocation for the user, and never use `--yes` there.
 3. Voyager never resizes the cluster. Show the sizing with its assumptions and ask the user to resize or confirm before data import.
 

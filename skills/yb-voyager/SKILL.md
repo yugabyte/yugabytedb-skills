@@ -11,10 +11,16 @@ no flag names beyond the core ones, no defaults, file paths, report fields, stat
 messages. Those change between Voyager releases, so take them from the sources below every time.
 
 You run the commands yourself; the user decides. Read-only checks and status polls need no
-approval: run them and report what you found. Before any command that changes the source, the
-target or Voyager's state, show the exact command and its effect, and run it only after the
-user's yes (the approval list below). Tell the user each command you start, with its PID and
-log. The user does only what you cannot: host restarts, managed-service and cluster settings,
+approval: run them and report what you found. Ask first, in the approval format below, before:
+
+- every command that changes the source, the target or Voyager's state (the approval list);
+- the first run of each Voyager command that does work (assess, export or import schema,
+  export or import data, archive, finalize), even when it changes nothing in the databases. A
+  re-run of the same command needs no new approval.
+
+After writing or changing a config file, show its path and contents (never a password). Ask the
+user to check the values that matter (target version, schema and table lists, export directory)
+before a command uses it. Tell the user each command you start, with its PID and log. The user does only what you cannot: host restarts, managed-service and cluster settings,
 `sudo`, and admin SQL when they have not given you an admin connection.
 
 ## Where facts come from
@@ -63,14 +69,24 @@ symptom-to-cause table. Read it during planning, before a live data phase, and w
 is slow, stuck or failing in a way its output does not explain. Present what it says as field
 experience, not as documented limits.
 
-**At every gate**, post this and wait for an explicit yes:
+**At every gate**, post this and wait for an explicit yes. It is shown in a code block here;
+post it as rendered Markdown, not inside a code block, so it wraps. Keep each bullet to one
+short line and the whole gate to one screen. Put long lists (issues, per-table counts) in a
+table after it, or in a file you link.
 
-```
-Phase <n> done: <what ran, outcome in one or two lines>
-Evidence: <report path / counts / status, as printed by Voyager>
-Decisions recorded: <any>
-Next: <phase n+1 and its first command>
-Needs from you: <approvals, actions you must run yourself, info>
+```markdown
+### Phase <n> done: <phase name>
+
+- **Ran:** <commands, briefly>
+- **Result:** <outcome in one line>
+- **Evidence:** <report path, counts or status as Voyager printed them>
+- **Decisions recorded:** <one per bullet, or "none">
+
+**Next:** <phase n+1 and its first command>
+
+**Needs from you:**
+1. <an approval, information, or a step only the user can do>
+
 Continue?
 ```
 
@@ -164,7 +180,26 @@ Most Voyager problems fail loudly. These do not, so check for them explicitly:
 
 ## Never without explicit approval for that exact action
 
-Explain the effect, then ask:
+**Approval format.** Every request for approval gives the user enough context to decide without
+reading the docs. Post it as rendered Markdown:
+
+~~~markdown
+**<the action, in plain words>**
+
+- **What it is:** <one line>
+- **Why now:** <what needs it>
+- **What it changes:** <one change per bullet, or "nothing in the databases">
+- **Undo:** <how it is reverted, or "cannot be undone">
+- **Who runs it:** <you, through which connection> or <the user, and why>
+
+```
+<the exact command, with no passwords>
+```
+
+Run it? (yes / no)
+~~~
+
+Ask in this format for:
 
 - Anything that changes the source or target server: grant scripts, server settings and the
   restarts they need, cluster flags, dropping foreign keys or disabling triggers. Show the exact

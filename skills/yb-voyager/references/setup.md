@@ -52,6 +52,8 @@ The assessment runs before the flow is chosen, so start with a small config for 
 
 No target section yet: assessment does not connect to the target. If the source has read replicas, ask the user whether to assess them and set the matching option (configuration-file page or `--help`), so the run does not stop to ask.
 
+Show the user the file's path and contents, and ask them to check the source connection, schema list and target version before assessment uses it.
+
 ## 6. Passwords
 
 Each of your commands runs in a fresh shell, so an `export` the user types during the session does not reach later commands. Ask the user which way your shell gets the source password variable named on the configuration-file page:
@@ -59,7 +61,7 @@ Each of your commands runs in a fresh shell, so an `export` the user types durin
 - **From the environment:** they export it, then start this session from that shell.
 - **From a file:** they put the `export` line in a file only they can read (`chmod 600`), outside the export directory, and give you its path. Start each command that needs a password with `. <file> &&` so it is set in that same shell. Never print or open the file.
 
-Target and replica passwords follow in later phases, the same way.
+Once the flow is chosen, `assess-and-plan.md` §7 lists every password the flow needs, set the same way.
 
 **Admin connection (optional).** Prep, grants and clean-up need a privileged account. Ask the user whether you should run these SQL steps yourself, after their approval of each one. If yes, they give you the host, port and admin user, with the password in its own variable, provided either way above. Use it only for approved admin steps, through `PGPASSWORD="$VAR" psql`. Suggest a separate admin role for the migration that they drop at the end. If they say no, print each admin statement for them to run. Record the choice (never the password) in the progress file.
 
@@ -71,7 +73,14 @@ Target and replica passwords follow in later phases, the same way.
 
 Assessment needs the offline (non-live) grant level only. The live variants change production tables, so they wait until the flow is chosen.
 
-1. Create the migration user first if it does not exist (migrate-steps page, "Prepare the source database").
+1. Create the migration user first if it does not exist (migrate-steps page, "Prepare the source database"). The user chooses its password and sets it in the source password variable first, never in chat. Create the user through the admin connection with psql reading the password from the environment, so it is on no command line:
+   ```
+   PGPASSWORD="$<admin variable>" psql -h <host> -p <port> -U <admin user> -d <database> <<'SQL'
+   \getenv pw <source password variable>
+   CREATE ROLE <migration user> LOGIN PASSWORD :'pw';
+   SQL
+   ```
+   `\getenv` needs psql 15 or newer.
 2. Fetch the grant-script page and build the offline-level command for the user's database, user and schema list.
 3. Show both commands and the effects the page lists for that level. After the user's yes, run them through the admin connection, or print them for the user if there is none.
 
