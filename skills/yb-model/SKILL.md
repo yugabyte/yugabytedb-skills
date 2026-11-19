@@ -1,6 +1,6 @@
 ---
 name: yb-model
-description: "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, pg_stat_statements output without a schema, node metrics such as CPU, memory or I/O, or an open-ended universe health check (yb-perf); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql)."
+description: "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, pg_stat_statements output without a schema, node metrics such as CPU, memory or I/O, or an open-ended universe health check (yb-perf); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql; running the Voyager migration itself: yb-voyager, if installed)."
 ---
 
 # YugabyteDB schema review
@@ -378,6 +378,7 @@ same repository; point to one only if it is installed.
 | Metrics: a hot node or tablet, CPU, I/O, tablet limits | `yb-perf` |
 | "Is the universe healthy?", no single symptom | `yb-perf` |
 | A new schema, application code or a migration to write | `ysql` |
+| Moving a PostgreSQL database to YugabyteDB with Voyager | `yb-voyager`, if installed |
 
 Hand-offs from a review:
 

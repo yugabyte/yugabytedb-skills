@@ -11,7 +11,7 @@
   "plugins": [
     {
       "name": "ysql",
-      "description": "Use when writing or reviewing SQL, schema definitions, or application code that targets YugabyteDB's PostgreSQL-compatible YSQL API (port 5433). Triggers on CREATE TABLE, indexes, connections, transactions, sharding, migrations from PostgreSQL, or any mention of YugabyteDB with SQL.",
+      "description": "Use when writing or reviewing SQL, schema definitions, or application code that targets YugabyteDB's PostgreSQL-compatible YSQL API (port 5433). Triggers on CREATE TABLE, indexes, connections, transactions, sharding, migrations from PostgreSQL (schema side; to run a Voyager migration use yb-voyager if installed), or any mention of YugabyteDB with SQL.",
       "source": "./",
       "strict": false,
       "skills": [
@@ -83,12 +83,27 @@
     },
     {
       "name": "yb-model",
-      "description": "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, pg_stat_statements output without a schema, node metrics such as CPU, memory or I/O, or an open-ended universe health check (yb-perf); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql).",
+      "description": "Offline review of an existing YugabyteDB YSQL schema and data model from evidence captured on the running database: a ysql_dump of the schema, plus pg_stats, pg_stat_statements or a query list, row counts and planner settings when available. Finds key and sharding problems (hot shards, tablet skew), unused or redundant indexes, partition and tablet-split gaps and data-quality issues, with deterministic findings and safety-checked DDL. Use when the user hands over a YugabyteDB schema dump or capture bundle and asks whether the schema or data model holds up, or why a table or tablet is hot, for example \"review this ysql_dump\" or \"audit our data model before go-live\". Not for: a slow query, pg_stat_statements output without a schema, node metrics such as CPU, memory or I/O, or an open-ended universe health check (yb-perf); designing a new schema, application code, or a PostgreSQL schema being migrated (ysql; running the Voyager migration itself: yb-voyager, if installed).",
       "source": "./",
       "strict": false,
       "skills": [
         "./skills/yb-model"
       ]
+    },
+    {
+      "name": "yb-voyager",
+      "description": "Guides a full PostgreSQL to YugabyteDB migration with YugabyteDB Voyager (yb-voyager), phase by phase - setup, assessment, choosing a migration flow (offline, live, live with fall-back, live with fall-forward), schema export and the analyze-schema fix loop, data export and import, cutover and end migration - stopping for the user's approval between phases and before every irreversible step. Use when a user wants to migrate a PostgreSQL database to YugabyteDB, is in the middle of a Voyager migration and wants to continue or recover one, or asks which Voyager migration type fits them. Triggers on yb-voyager, Voyager, assess-migration, export schema, analyze-schema, import schema, export data, import data, get data-migration-report, cutover, initiate cutover, fall-back, iterative cutover, fall-forward, source-replica, archive changes, end migration, export-dir, migration assessment report. Not for writing application SQL against YugabyteDB (ysql) or reviewing an existing YugabyteDB schema (yb-model).",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/yb-voyager"
+      ],
+      "mcpServers": {
+        "yugabytedb-docs": {
+          "type": "http",
+          "url": "https://yugabyte.mcp.kapa.ai"
+        }
+      }
     }
   ]
 }
