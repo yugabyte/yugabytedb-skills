@@ -42,7 +42,7 @@ Reverse streaming keeps running until the migration ends. Ask the user:
 
 1. **Stay on the target.** Go to end migration. Ending stops the reverse stream, after which there is no fall-back.
 2. **Fall back to the source.** First ask whether this fall-back is final or the start of another round (next section), because that choice is made on the cutover command itself.
-   1. **GATE: the user confirms application writes to YugabyteDB are stopped and approves the exact `initiate cutover to source` command, including whether it starts another round.**
+   1. **GATE: the user confirms application writes to YugabyteDB are stopped and approves the exact `initiate cutover to source` command, including whether it starts another round.** Run it only once the reverse exporter's rate is zero and the change lag (remaining events) into the source is zero.
    2. Check every reverse process is alive, then run `yb-voyager initiate cutover to source` with the options the cutover docs page gives, plus the restart option only if the user chose another round. Pass `--yes` only after the user's go.
    3. Poll `cutover status` until the target-to-source direction reports completed.
    4. Restore on the source whatever the version-specific step removed, using the live-fall-back page. **GATE: the user approves the restore statements.** Run them through the admin connection, or the user runs them if there is none.
