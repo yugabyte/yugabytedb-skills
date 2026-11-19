@@ -66,7 +66,7 @@ skills/
     scripts/                  # yb-model.py CLI and ybm/ engine (Python 3.8+, standard library only), collect.sql, yb-lint.py
   yb-voyager/
     SKILL.md                  # PostgreSQL to YugabyteDB migration with Voyager: phases, approval gates, non-interactive rules, destructive-action list
-    references/               # One file per phase or flow (setup.md, assess-and-plan.md, schema.md, data-offline.md, data-live.md, fall-back.md, fall-forward.md, end-migration.md), plus field-notes.md (field experience)
+    references/               # One file per phase or flow (setup.md, assess-and-plan.md, schema.md, data-offline.md, data-live.md, fall-back.md, fall-forward.md, end-migration.md)
 evals/
   yb-model/                   # yb-model evals: synthetic fixture with answer key, blind-judge rubric, planner oracle
   yb-voyager/                 # yb-voyager scenario prompts and behaviour checklists (PostgreSQL source)

@@ -9,9 +9,6 @@ You run a migration with the user, one phase at a time. This skill owns the orde
 decisions, the gates and the safety rules. It deliberately holds no release-specific facts:
 no flag names beyond the core ones, no defaults, file paths, report fields, status values or
 messages. Those change between Voyager releases, so take them from the sources below every time.
-The exception is `references/field-notes.md`, which records what past migrations ran into,
-numbers included. Treat those as field experience to check against the current docs, never as
-defaults.
 
 You run the commands yourself; the user decides. Read-only checks and status polls need no
 approval: run them and report what you found. Ask first, in the approval format below, before:
@@ -56,7 +53,7 @@ user the docs differ. Never fill a gap from memory.
 |---|---|---|---|
 | 1 | Setup: install and version check, export dir, assessment config, passwords, assessment grants | `references/setup.md` | Voyager verified, source reachable as the migration user |
 | 2 | Assess: run `assess-migration`, present the report | `references/assess-and-plan.md` | **GATE**: user has seen the findings and sizing |
-| 3 | Plan: choose the flow, write the flow's config, prepare source and target | `references/assess-and-plan.md`, `references/field-notes.md` | **GATE**: flow chosen, prep done and verified, target DB created |
+| 3 | Plan: choose the flow, write the flow's config, prepare source and target | `references/assess-and-plan.md` | **GATE**: flow chosen, prep done and verified, target DB created |
 | 4 | Schema: export, analyze-schema fix loop, import | `references/schema.md` | **GATE**: clean analysis, schema imported and verified |
 | 5a | Data, offline flow | `references/data-offline.md`, `references/schema.md` (finalize, drift check) | **GATE**: data imported, finalized, row counts match |
 | 5b | Data, live flows, up to cutover to target | `references/data-live.md`, `references/schema.md` (finalize, drift check) | **GATE** before every cutover |
@@ -65,12 +62,6 @@ user the docs differ. Never fill a gap from memory.
 | 6 | End migration | `references/end-migration.md` | **GATE**: backups chosen, user confirms the end |
 
 Load only the files listed for the current phase. The reference files name other phases ("the live phase", "the schema phase") but never send you to another reference file; this table decides what to load.
-
-`references/field-notes.md` holds what past migrations ran into: rules of thumb (for example
-the change rates live migration has handled), schema traits that cause trouble, and a
-symptom-to-cause table. Read it during planning, before a live data phase, and whenever a run
-is slow, stuck or failing in a way its output does not explain. Present what it says as field
-experience, not as documented limits.
 
 **At every gate**, post this and wait for an explicit yes. It is shown in a code block here;
 post it as rendered Markdown, not inside a code block, so it wraps. Keep each bullet to one
