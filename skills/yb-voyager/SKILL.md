@@ -66,11 +66,10 @@ user the docs differ. Never fill a gap from memory.
 
 Load only the files listed for the current phase. The reference files name other phases ("the live phase", "the schema phase") but never send you to another reference file; this table decides what to load.
 
-`references/field-notes.md` holds what past migrations ran into: rules of thumb (for example
-the change rates live migration has handled), schema traits that cause trouble, and a
-symptom-to-cause table. Read it during planning, before a live data phase, and whenever a run
-is slow, stuck or failing in a way its output does not explain. Present what it says as field
-experience, not as documented limits.
+`references/field-notes.md` holds what past migrations ran into: rules of thumb, schema traits
+that cause trouble, and a symptom-to-cause table. Read it during planning, before a live data
+phase, and whenever a run is slow, stuck or failing in a way its output does not explain.
+Present what it says as field experience, not as documented limits.
 
 **At every gate**, post this and wait for an explicit yes. It is shown in a code block here;
 post it as rendered Markdown, not inside a code block, so it wraps. Keep each bullet to one
