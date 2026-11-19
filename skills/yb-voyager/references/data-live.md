@@ -29,13 +29,13 @@ The importer may start before the exporter; if it says it is waiting, that is ex
 4. Decide on archiving (section 6).
 5. Poll (section 4) until the snapshot is imported for every table and the change lag is near zero and stays there.
 6. Tell the user cutover is possible now; do not wait for them to ask. Say:
-   - what it involves: they stop application writes, you cut over, then finalize and validate;
+   - what it involves: they stop application writes; you confirm no new changes are arriving (the exporter's rate is zero) and wait until Voyager's change lag (remaining events) reaches zero; only then you cut over, then finalize and validate;
    - roughly how long writes stay stopped, from the current lag and the finalize step;
    - that it cannot be undone, except through fall-back or fall-forward if that flow was chosen.
 
    Ask when they want to do it. Never start a cutover on your own. Until they choose a time, keep polling and report the lag at each poll.
 7. Run `schema detect-drift` (optional, recommended; the schema phase covers it). Apply target-side fixes only with the user's approval.
-8. **GATE: the user confirms application writes to the source are stopped and the exporter shows no new changes.**
+8. **GATE: the user confirms application writes to the source are stopped. Before asking for the cutover, show that the exporter's rate is zero and the importer's change lag (remaining events) is zero.** Cut over only when both are zero.
 9. Check liveness (section 5).
 10. Initiate cutover (section 7), then poll `cutover status` until the source-to-target direction reports completed.
 11. Run finalize, validate row counts with the user, then switch the application.
@@ -73,7 +73,7 @@ If the flow config holds archiving placeholders, replace them or comment them ou
 `initiate cutover` commands request a cutover; the running processes do the work. They prompt for confirmation: pass `--yes` only right after the user's go for that exact command.
 
 Pre-checks:
-1. Application writes to the source are stopped (the gate in section 3).
+1. Application writes to the source are stopped, the exporter's rate is zero and the change lag (remaining events) is zero (the gate in section 3).
 2. Every streaming process is alive. If one is dead, the cutover can wait indefinitely without an error. Restart it with the same command first.
 3. The cutover may run pre-checks that connect to the source; set every password variable the flow uses. If a pre-check reports a problem, resolve it with the user; skip a pre-check only with their approval.
 

@@ -46,7 +46,7 @@ Changes keep flowing to the source-replica until the migration ends. Ask the use
 
 1. **Stay on the target.** Go to end migration. Ending stops the stream to the source-replica, after which there is no switch.
 2. **Switch to the source-replica.**
-   1. **GATE: the user confirms application writes to YugabyteDB are stopped and approves the exact `initiate cutover to source-replica` command.**
+   1. **GATE: the user confirms application writes to YugabyteDB are stopped and approves the exact `initiate cutover to source-replica` command.** Run it only once the exporter from YugabyteDB shows a zero rate and the change lag (remaining events) into the source-replica is zero.
    2. Check every process is alive, then run `yb-voyager initiate cutover to source-replica` with the options the cutover docs page gives. Pass `--yes` only after the user's go.
    3. Poll `cutover status` until the source-replica direction reports completed.
    4. On the source-replica, create what was left out before cutover and re-enable what was disabled, per the page. **GATE: the user approves these statements.** Run them through the source-replica admin connection, or the user runs them if there is none.
