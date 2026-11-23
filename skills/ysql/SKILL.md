@@ -1,6 +1,6 @@
 ---
 name: ysql
-description: Use when writing or reviewing SQL, schema definitions, or application code that targets YugabyteDB's PostgreSQL-compatible YSQL API (port 5433). Triggers on CREATE TABLE, indexes, connections, transactions, sharding, migrations from PostgreSQL, or any mention of YugabyteDB with SQL.
+description: Use when writing or reviewing SQL, schema definitions, or application code that targets YugabyteDB's PostgreSQL-compatible YSQL API (port 5433). Triggers on CREATE TABLE, indexes, connections, transactions, sharding, migrations from PostgreSQL (schema side; to run a Voyager migration use yb-voyager if installed), or any mention of YugabyteDB with SQL.
 ---
 
 # YugabyteDB YSQL Best Practices
@@ -10,7 +10,7 @@ description: Use when writing or reviewing SQL, schema definitions, or applicati
 - `references/retry-patterns.md` — transaction retry code in Python and Java
 - `references/bnl-joins.md` — Batched Nested Loop join design implications, GUC defaults, and diagnosis
 - `references/query-optimization.md` — worked example of `timestamp` vs `now()` blocking index pushdown
-- `references/voyager.md` — YugabyteDB Voyager migration assessment and schema conversion review
+- `references/voyager.md` — YugabyteDB Voyager migration assessment and schema conversion review. To run a Voyager migration end to end, use the `yb-voyager` skill if it is installed.
 
 YugabyteDB is a distributed, PostgreSQL-compatible database (YSQL on port 5433) that is **ACID-compliant**, **highly available**, **horizontally scalable**, and supports **hash/range sharding** of tables and indexes. Every design choice should balance read efficiency, write scalability, and operational cost.
 
