@@ -45,8 +45,8 @@ skills/
   aeon-api/
     SKILL.md                  # YugabyteDB Aeon (managed cloud) REST API skill
     references/
-      auth-and-discovery.md   # API key, discovering accountId/projectId/clusterId, curl/Python/PowerShell patterns, pagination
-      recipes.md               # Ready-to-use operations: cluster info, scaling, node list, database users, allowlists, backups, metrics
+      auth-and-discovery.md   # API key, discovering accountId/projectId/clusterId, curl/Python/PowerShell patterns, pagination, errors, task polling
+      recipes.md               # Ready-to-use operations: cluster info, scaling (whole spec), pause/resume, nodes, allow lists, backups/restore, metrics, database users (SQL)
   yb-perf/
     SKILL.md                  # Performance must-checks, SQL and metrics layers: slow app/queries, EXPLAIN, pgss, locks, ASH, Prometheus / YBA
     scripts/
